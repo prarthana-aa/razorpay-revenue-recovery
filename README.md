@@ -20,8 +20,8 @@ Payment failures rarely have one obvious cause. A segment's success rate can dro
 
 ```
 ┌─────────────────┐      REST API      ┌──────────────────────┐
-│  React frontend  │ ─────────────────▶ │   FastAPI backend     │
-│  (Vite, Recharts)│ ◀───────────────── │   (SQLite via SQLAlchemy) │
+│ React frontend  │ ─────────────────▶ │   FastAPI backend     │
+│ (Vite, Recharts)│ ◀───────────────── |(SQLite via SQLAlchemy) │
 └─────────────────┘                     └──────────────────────┘
 ```
 
