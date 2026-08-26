@@ -1,6 +1,9 @@
 import random
 import json
+import csv
+import io
 from collections import defaultdict
+from datetime import datetime as dt
 from sqlalchemy.orm import Session
 
 from . import models
@@ -63,21 +66,23 @@ def _cause_weights_for_segment(rng):
 
 
 def _random_split(rng, n, low=0.0):
-    raw = [rng.uniform(low, 1.0) for _ in range(n)]
-    return raw
+    return [rng.uniform(low, 1.0) for _ in range(n)]
 
 
-def generate_batch(db: Session, seed=None):
-    rng = random.Random(seed)
-
-    # single active batch at a time — wipe previous data for a clean demo state
+def _wipe_existing(db: Session):
     db.query(models.TimelineEvent).delete()
     db.query(models.Case).delete()
     db.query(models.Transaction).delete()
     db.query(models.Batch).delete()
     db.commit()
 
-    batch = models.Batch(seed=seed)
+
+def generate_batch(db: Session, seed=None):
+    """Create a fresh randomized synthetic transaction batch."""
+    rng = random.Random(seed)
+    _wipe_existing(db)
+
+    batch = models.Batch(seed=seed, anomaly_start=ANOMALY_START, source="generated")
     db.add(batch)
     db.commit()
     db.refresh(batch)
@@ -86,12 +91,10 @@ def generate_batch(db: Session, seed=None):
     n_flagged = rng.choice([2, 3])
     flagged_indices = set(rng.sample(range(len(segments)), n_flagged))
 
-    segment_meta = {}
     all_transactions = []
 
     for idx, (issuer, method) in enumerate(segments):
         key = f"{issuer.lower()}_{method.lower()}"
-        label = f"{issuer} · {method}"
         is_flagged = idx in flagged_indices
         baseline_rate = rng.uniform(88, 95)
         anomaly_rate = rng.uniform(45, 70) if is_flagged else baseline_rate
@@ -99,11 +102,6 @@ def generate_batch(db: Session, seed=None):
             c: 0.25 for c in FAILURE_CODES
         }
         avg_amount = AVG_AMOUNT.get(method, 500)
-
-        segment_meta[key] = {
-            "issuer": issuer, "method": method, "label": label,
-            "is_flagged": is_flagged, "avg_amount": avg_amount,
-        }
 
         for day in range(1, DAYS + 1):
             in_anomaly_window = is_flagged and day >= ANOMALY_START
@@ -131,34 +129,164 @@ def generate_batch(db: Session, seed=None):
 
     db.bulk_save_objects(all_transactions)
     db.commit()
+    return batch
 
-    return batch, segment_meta
+
+def parse_csv_and_load(db: Session, file_bytes: bytes):
+    """Parse an uploaded transaction CSV and load it as a fresh batch.
+
+    Expected columns (case-insensitive): day, issuer, method, amount, status,
+    failure_code. `day` may be an integer day number or a date (several common
+    formats are tried). `failure_code` should be one of: issuer_decline,
+    otp_timeout, expired_card, network_error — unrecognized values are bucketed
+    into network_error and reported back so nothing fails silently.
+    """
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        raise ValueError("Could not read the file as UTF-8 text. Please export the CSV as UTF-8.")
+
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError("The CSV appears to be empty.")
+
+    field_map = {f.strip().lower(): f for f in reader.fieldnames}
+    required = ["day", "issuer", "method", "amount", "status"]
+    missing = [r for r in required if r not in field_map]
+    if missing:
+        raise ValueError(
+            f"Missing required column(s): {', '.join(missing)}. "
+            f"Expected columns: day, issuer, method, amount, status, failure_code "
+            f"(failure_code required for rows where status is failed)."
+        )
+
+    rows = list(reader)
+    if len(rows) < 10:
+        raise ValueError("Need at least 10 transaction rows to run detection meaningfully.")
+
+    raw_days = [row[field_map["day"]].strip() for row in rows]
+    try:
+        day_values = [int(d) for d in raw_days]
+    except ValueError:
+        parsed_dates = []
+        for d in raw_days:
+            parsed = None
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y", "%m/%d/%Y"):
+                try:
+                    parsed = dt.strptime(d, fmt)
+                    break
+                except ValueError:
+                    continue
+            if parsed is None:
+                raise ValueError(
+                    f"Could not parse day/date value '{d}'. Use an integer day "
+                    f"number (1, 2, 3...) or a date like 2026-08-01."
+                )
+            parsed_dates.append(parsed)
+        unique_sorted = sorted(set(parsed_dates))
+        date_to_day = {d: i + 1 for i, d in enumerate(unique_sorted)}
+        day_values = [date_to_day[d] for d in parsed_dates]
+
+    unique_days = sorted(set(day_values))
+    if len(unique_days) < 4:
+        raise ValueError(
+            "Need at least 4 distinct days/dates in the data to establish a "
+            "baseline vs. a recent window."
+        )
+
+    split_index = max(1, (len(unique_days) * 2) // 3)
+    anomaly_start = unique_days[split_index]
+
+    _wipe_existing(db)
+    batch = models.Batch(seed=None, anomaly_start=anomaly_start, source="csv_upload")
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    unrecognized_codes = set()
+    transactions = []
+    fc_field = field_map.get("failure_code")
+
+    for row, day in zip(rows, day_values):
+        issuer = row[field_map["issuer"]].strip() or "Unknown"
+        method = row[field_map["method"]].strip() or "Unknown"
+        amount_raw = row[field_map["amount"]].strip().replace(",", "").replace("₹", "").replace("$", "")
+        try:
+            amount = float(amount_raw) if amount_raw else 0.0
+        except ValueError:
+            amount = 0.0
+
+        status_raw = row[field_map["status"]].strip().lower()
+        status = "success" if status_raw in ("success", "successful", "ok", "completed", "1", "true", "captured") else "failed"
+
+        failure_code = None
+        if status == "failed":
+            fc_raw = row.get(fc_field, "").strip() if fc_field else ""
+            if fc_raw:
+                normalized = fc_raw.lower().replace(" ", "_").replace("-", "_")
+                if normalized in FAILURE_CODES:
+                    failure_code = normalized
+                else:
+                    unrecognized_codes.add(fc_raw)
+                    failure_code = "network_error"
+            else:
+                failure_code = "network_error"
+
+        key = f"{issuer.lower().replace(' ', '_')}_{method.lower().replace(' ', '_')}"
+        transactions.append(models.Transaction(
+            batch_id=batch.id, day=day, segment_key=key,
+            issuer=issuer, method=method, amount=amount,
+            status=status, failure_code=failure_code,
+        ))
+
+    db.bulk_save_objects(transactions)
+    db.commit()
+
+    return batch, {
+        "rows_loaded": len(transactions),
+        "unrecognized_failure_codes": sorted(unrecognized_codes),
+    }
 
 
-def analyze_batch(db: Session, batch_id: int, segment_meta: dict):
-    """Run real detection + diagnosis over the generated transactions
-    and persist Case + TimelineEvent rows. Nothing here is hardcoded —
-    every number is computed from the transactions table."""
+def analyze_batch(db: Session, batch_id: int, anomaly_start: int):
+    """Run real detection + diagnosis over whatever transactions exist for this
+    batch in the database. Works identically for generated or uploaded data —
+    every number here is computed live, nothing is hardcoded."""
     cases = []
 
-    for key, meta in segment_meta.items():
+    segment_keys = [
+        row[0] for row in
+        db.query(models.Transaction.segment_key)
+        .filter(models.Transaction.batch_id == batch_id)
+        .distinct()
+        .all()
+    ]
+
+    for key in segment_keys:
         txs = db.query(models.Transaction).filter(
             models.Transaction.batch_id == batch_id,
             models.Transaction.segment_key == key,
         ).all()
+        if not txs:
+            continue
 
-        baseline_txs = [t for t in txs if t.day < ANOMALY_START]
-        window_txs = [t for t in txs if t.day >= ANOMALY_START]
+        label = f"{txs[0].issuer} · {txs[0].method}"
+        avg_amount = sum(t.amount for t in txs) / len(txs)
+
+        baseline_txs = [t for t in txs if t.day < anomaly_start]
+        window_txs = [t for t in txs if t.day >= anomaly_start]
+        if not baseline_txs or not window_txs:
+            continue
 
         baseline_success = sum(1 for t in baseline_txs if t.status == "success")
-        baseline_rate = round(100 * baseline_success / len(baseline_txs), 1) if baseline_txs else 0
+        baseline_rate = round(100 * baseline_success / len(baseline_txs), 1)
 
         window_success = sum(1 for t in window_txs if t.status == "success")
-        window_rate = round(100 * window_success / len(window_txs), 1) if window_txs else 0
+        window_rate = round(100 * window_success / len(window_txs), 1)
 
         drop = baseline_rate - window_rate
         if drop < DROP_THRESHOLD:
-            continue  # not a meaningful anomaly — no case raised
+            continue
 
         failed = [t for t in window_txs if t.status == "failed"]
         if not failed:
@@ -203,12 +331,12 @@ def analyze_batch(db: Session, batch_id: int, segment_meta: dict):
         case = models.Case(
             batch_id=batch_id,
             segment_key=key,
-            segment_label=meta["label"],
+            segment_label=label,
             baseline_rate=baseline_rate,
             current_rate=window_rate,
             window_attempts=len(window_txs),
             window_failed=total_failed,
-            avg_amount=meta["avg_amount"],
+            avg_amount=round(avg_amount, 2),
             top_cause=hypotheses[0]["code"] if not abstained else None,
             top_confidence=top_confidence,
             hypotheses_json=json.dumps(hypotheses),
@@ -220,7 +348,7 @@ def analyze_batch(db: Session, batch_id: int, segment_meta: dict):
 
         events = [
             f"Detected — success rate dropped from {baseline_rate}% to {window_rate}% "
-            f"against a 14-day baseline.",
+            f"against a baseline period.",
             f"Diagnosis generated — {len(hypotheses)} candidate cause(s) evaluated: "
             + ", ".join(
                 f"{CODE_LABELS[h['code']]} ({round(h['confidence'] * 100)}%)"

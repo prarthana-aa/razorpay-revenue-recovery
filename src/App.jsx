@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import {
   ShieldAlert, TrendingDown, CheckCircle2, XCircle, AlertTriangle,
-  RotateCcw, ChevronRight, IndianRupee, Circle, RefreshCw, Loader2
+  RotateCcw, ChevronRight, IndianRupee, Circle, RefreshCw, Loader2, Upload
 } from "lucide-react";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -184,6 +184,56 @@ export default function App() {
     setGenerating(false);
   }
 
+  async function uploadCsv(file) {
+    if (!file) return;
+    setGenerating(true);
+    setError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || "Upload failed.");
+      await fetchAll();
+      if (data.unrecognized_failure_codes && data.unrecognized_failure_codes.length) {
+        setError(
+          `Loaded ${data.rows_loaded} rows. Some failure_code values weren't recognized ` +
+          `and were bucketed as "network_error": ${data.unrecognized_failure_codes.join(", ")}.`
+        );
+      }
+    } catch (e) {
+      setError(e.message || "Upload failed — check your CSV format.");
+    }
+    setGenerating(false);
+  }
+
+  function downloadSampleCsv() {
+    const header = "day,issuer,method,amount,status,failure_code\n";
+    const rows = [];
+    for (let day = 1; day <= 15; day++) {
+      const anomaly = day >= 11;
+      const rate = anomaly ? 55 : 93;
+      for (let i = 0; i < 25; i++) {
+        const success = Math.random() * 100 < rate;
+        const amount = (300 + Math.random() * 300).toFixed(2);
+        let code = "";
+        if (!success) {
+          code = anomaly
+            ? (Math.random() < 0.75 ? "issuer_decline" : ["otp_timeout", "expired_card", "network_error"][Math.floor(Math.random() * 3)])
+            : ["issuer_decline", "otp_timeout", "expired_card", "network_error"][Math.floor(Math.random() * 4)];
+        }
+        rows.push(`${day},HDFC,UPI,${amount},${success ? "success" : "failed"},${code}`);
+      }
+    }
+    const blob = new Blob([header + rows.join("\n")], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sample_transactions.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   async function doAction(caseId, action) {
     try {
       const res = await fetch(`${API_BASE}/api/cases/${caseId}/${action}`, { method: "POST" });
@@ -223,10 +273,27 @@ export default function App() {
             Detects payment-success degradation, ranks competing root causes with confidence, abstains honestly when evidence is thin, and never recovers money without an operator's approval.
           </p>
         </div>
-        <button onClick={generate} disabled={generating} style={{ ...btnStyle(C.blue, true, generating), height: 36, flexShrink: 0 }}>
-          {generating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
-          {generating ? "Generating..." : "Generate new batch"}
-        </button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button onClick={generate} disabled={generating} style={{ ...btnStyle(C.blue, true, generating), height: 36 }}>
+              {generating ? <Loader2 size={14} className="spin" /> : <RefreshCw size={14} />}
+              {generating ? "Working..." : "Generate new batch"}
+            </button>
+            <label style={{ ...btnStyle(C.textMuted, false, generating), height: 36, margin: 0 }}>
+              <Upload size={14} /> Upload CSV
+              <input
+                type="file"
+                accept=".csv"
+                disabled={generating}
+                style={{ display: "none" }}
+                onChange={(e) => { uploadCsv(e.target.files[0]); e.target.value = ""; }}
+              />
+            </label>
+          </div>
+          <button onClick={downloadSampleCsv} style={{ background: "none", border: "none", color: C.textFaint, fontSize: 11.5, cursor: "pointer", textDecoration: "underline", fontFamily: fontSans, padding: 0 }}>
+            download a sample CSV to try
+          </button>
+        </div>
       </div>
 
       {error && (

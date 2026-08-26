@@ -2,7 +2,7 @@ import json
 from collections import defaultdict
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
@@ -50,9 +50,28 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
 
 @app.post("/api/generate")
 def generate(seed: Optional[int] = None, db: Session = Depends(get_db)):
-    batch, segment_meta = generator.generate_batch(db, seed=seed)
-    cases = generator.analyze_batch(db, batch.id, segment_meta)
-    return {"batch_id": batch.id, "cases_created": len(cases)}
+    batch = generator.generate_batch(db, seed=seed)
+    cases = generator.analyze_batch(db, batch.id, batch.anomaly_start)
+    return {"batch_id": batch.id, "cases_created": len(cases), "source": "generated"}
+
+
+@app.post("/api/upload")
+async def upload_csv(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    if not file.filename.lower().endswith(".csv"):
+        raise HTTPException(400, "Please upload a .csv file.")
+    content = await file.read()
+    try:
+        batch, info = generator.parse_csv_and_load(db, content)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+    cases = generator.analyze_batch(db, batch.id, batch.anomaly_start)
+    return {
+        "batch_id": batch.id,
+        "cases_created": len(cases),
+        "source": "csv_upload",
+        **info,
+    }
 
 
 @app.get("/api/segments")
@@ -65,15 +84,17 @@ def get_segments(db: Session = Depends(get_db)):
     txs = db.query(models.Transaction).filter(models.Transaction.batch_id == batch.id).all()
     stats = defaultdict(lambda: {"success": 0, "total": 0})
     segments_seen = {}
+    all_days = set()
     for t in txs:
         segments_seen[t.segment_key] = f"{t.issuer} · {t.method}"
+        all_days.add(t.day)
         k = (t.day, t.segment_key)
         stats[k]["total"] += 1
         if t.status == "success":
             stats[k]["success"] += 1
 
     rows = []
-    for day in range(1, generator.DAYS + 1):
+    for day in sorted(all_days):
         row = {"day": f"D{day}"}
         for seg_key in segments_seen:
             s = stats.get((day, seg_key), {"success": 0, "total": 0})
@@ -83,7 +104,7 @@ def get_segments(db: Session = Depends(get_db)):
     return {
         "rows": rows,
         "segments": [{"key": k, "label": v} for k, v in segments_seen.items()],
-        "anomaly_start": generator.ANOMALY_START,
+        "anomaly_start": batch.anomaly_start,
     }
 
 

@@ -8,6 +8,8 @@ class Batch(Base):
     id = Column(Integer, primary_key=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     seed = Column(Integer, nullable=True)
+    anomaly_start = Column(Integer, nullable=True)
+    source = Column(String, default="generated")  # "generated" | "csv_upload"
 
 
 class Transaction(Base):
