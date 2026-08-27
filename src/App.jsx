@@ -261,7 +261,7 @@ export default function App() {
   const metrics = dashboard || { recovered: 0, recoverable: 0, resolution_rate: 0, escalation_rate: 0, flagged_segments: 0 };
 
   return (
-    <div style={{ background: C.bg, color: C.text, fontFamily: fontSans, minHeight: "100vh", padding: 20 }}>
+    <div className="app-container" style={{ background: C.bg, color: C.text, fontFamily: fontSans, minHeight: "100vh" }}>
       {/* Header */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 18, gap: 16, flexWrap: "wrap" }}>
         <div>
