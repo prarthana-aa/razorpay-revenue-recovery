@@ -41,6 +41,17 @@ function formatCurrency(value) {
   return `₹${Math.round(value || 0).toLocaleString("en-IN")}`;
 }
 
+function getEvidenceColor(colorName) {
+  const map = {
+    mint: C.green,
+    blue: C.blue,
+    amber: C.amber,
+    coral: C.red,
+    slate: C.textMuted
+  };
+  return map[colorName] || C.textMuted;
+}
+
 function statusMeta(status, reverted = false) {
   if (reverted) return { label: "REVERTED", tone: "red", color: C.red };
   const map = {
@@ -473,6 +484,20 @@ function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail,
 function DiagnosisWorkspace({ detail, doAction }) {
   const topHypothesis = detail.hypotheses?.[0];
   const meta = statusMeta(detail.status, detail.reverted);
+  
+  const evidenceData = detail.hypotheses?.map(h => {
+    const count = h.share || 0;
+    const percentage = detail.window_failed ? Math.round((count / detail.window_failed) * 100) : 0;
+    const label = CODE_LABEL[h.code] || "Unknown signal";
+    const colorMap = {
+      otp_timeout: "mint",
+      issuer_decline: "blue",
+      expired_card: "amber",
+      network_error: "coral"
+    };
+    const color = colorMap[h.code] || "slate";
+    return { label, count, percentage, color };
+  }) || [];
   return (
     <section className="diagnosis-workspace">
       <div className="diagnosis-header panel">
@@ -504,8 +529,32 @@ function DiagnosisWorkspace({ detail, doAction }) {
         </section>
 
         <section className="evidence-panel panel">
-          <div className="panel-heading"><div><div className="section-kicker"><BarChart3 size={14} /> EVIDENCE</div><h3>Signal composition</h3></div><span className="evidence-count">{detail.evidence?.length || 0} signals</span></div>
-          {(detail.evidence || []).length ? <div className="evidence-list">{detail.evidence.map((evidence, index) => <div className="evidence-row" key={evidence.code || index}><div className="evidence-marker" style={{ background: SEGMENT_LINE_COLORS[index % SEGMENT_LINE_COLORS.length] }} /><div><strong>{CODE_LABEL[evidence.code] || evidence.code}</strong><span>{evidence.count} observed failures</span></div><b>{Math.round(evidence.share * 100)}%</b></div>)}</div> : <div className="evidence-empty">Evidence detail is not available for this case.</div>}
+          <div className="panel-heading"><div><div className="section-kicker"><BarChart3 size={14} /> EVIDENCE</div><h3>Signal composition</h3></div><span className="evidence-count">{evidenceData.length} signals</span></div>
+          {evidenceData.length ? (
+            <div className="evidence-list">
+              {evidenceData.map((evidence, index) => (
+                <div key={evidence.label || index} style={{ display: "flex", flexDirection: "column", gap: "6px", padding: "10px 0", borderBottom: "1px solid var(--border-soft)" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
+                      <div style={{ width: "8px", height: "8px", borderRadius: "50%", background: getEvidenceColor(evidence.color) }} />
+                      <strong style={{ fontSize: "10px" }}>{evidence.label}</strong>
+                    </div>
+                    <b style={{ color: "var(--text)", fontSize: "12px", fontFamily: "var(--mono)" }}>{evidence.percentage}%</b>
+                  </div>
+                  <div className="confidence-track" style={{ height: "4px" }}>
+                    <div className="confidence-fill" style={{ width: `${evidence.percentage}%`, background: getEvidenceColor(evidence.color) }} />
+                  </div>
+                  <span style={{ color: "var(--text-faint)", fontSize: "9px" }}>
+                    {evidence.count} failures • {evidence.percentage}% of failed transactions
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="evidence-empty" style={{ opacity: 0.7 }}>
+              No evidence available for this investigation window.
+            </div>
+          )}
           <div className="evidence-foot"><ShieldAlert size={14} /> Scores are transparent and traceable to transaction rows.</div>
         </section>
       </div>
