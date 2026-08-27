@@ -11,6 +11,25 @@ from .database import engine, get_db, Base
 
 Base.metadata.create_all(bind=engine)
 
+# Migration guard: add new columns to 'cases' if they were introduced after the
+# table was first created. SQLite ignores ALTER TABLE ... ADD COLUMN if it errors
+# (duplicate column), so we swallow OperationalError safely.
+_NEW_CASE_COLS = [
+    "ALTER TABLE cases ADD COLUMN diagnosis_category TEXT",
+    "ALTER TABLE cases ADD COLUMN severity TEXT",
+    "ALTER TABLE cases ADD COLUMN diagnosis_summary TEXT",
+    "ALTER TABLE cases ADD COLUMN evidence_json TEXT",
+    "ALTER TABLE cases ADD COLUMN recommendation_json TEXT",
+    "ALTER TABLE cases ADD COLUMN abstain_reason TEXT",
+]
+with engine.connect() as _conn:
+    for _stmt in _NEW_CASE_COLS:
+        try:
+            _conn.execute(__import__("sqlalchemy").text(_stmt))
+        except Exception:
+            pass  # column already exists — safe to ignore
+
+
 app = FastAPI(title="Payment Recovery Console API")
 
 app.add_middleware(
@@ -36,6 +55,13 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
         "recovered_tx": c.recovered_tx,
         "chosen_action": c.chosen_action,
         "hypotheses": json.loads(c.hypotheses_json),
+        # --- explainable diagnosis fields ---
+        "diagnosis_category": c.diagnosis_category,
+        "severity": c.severity,
+        "diagnosis_summary": c.diagnosis_summary,
+        "evidence": json.loads(c.evidence_json) if c.evidence_json else [],
+        "recommendation": json.loads(c.recommendation_json) if c.recommendation_json else None,
+        "abstain_reason": c.abstain_reason,
     }
     if include_timeline and db is not None:
         events = (
@@ -46,6 +72,7 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
         )
         data["timeline"] = [{"ts": e.ts.isoformat(), "event": e.event} for e in events]
     return data
+
 
 
 @app.post("/api/generate")

@@ -44,6 +44,13 @@ class Case(Base):
     recovered_amount = Column(Float, nullable=True)
     recovered_tx = Column(Integer, nullable=True)
     chosen_action = Column(String, nullable=True)
+    # --- explainable diagnosis fields (added) ---
+    diagnosis_category = Column(String, nullable=True)
+    severity = Column(String, nullable=True)
+    diagnosis_summary = Column(String, nullable=True)
+    evidence_json = Column(String, nullable=True)
+    recommendation_json = Column(String, nullable=True)
+    abstain_reason = Column(String, nullable=True)
 
 
 class TimelineEvent(Base):
