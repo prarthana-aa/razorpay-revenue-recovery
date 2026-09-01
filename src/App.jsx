@@ -482,6 +482,17 @@ function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail,
 }
 
 function DiagnosisWorkspace({ detail, doAction }) {
+  const [agentData, setAgentData] = useState(null);
+  
+  useEffect(() => {
+    if (detail?.id) {
+      fetch(`${API_BASE}/api/agent/${detail.id}`)
+        .then(res => res.json())
+        .then(setAgentData)
+        .catch(() => setAgentData(null));
+    }
+  }, [detail?.id]);
+
   const topHypothesis = detail.hypotheses?.[0];
   const meta = statusMeta(detail.status, detail.reverted);
   
@@ -570,6 +581,43 @@ function DiagnosisWorkspace({ detail, doAction }) {
           {detail.status === "rejected" && <div className="rejected-note"><XCircle size={16} />No recovery action was taken for this case.</div>}
         </div>
       </section>
+
+      {agentData && (
+        <div className="agent-panels">
+          <section className="agent-status panel">
+            <div className="panel-heading"><div><div className="section-kicker"><Zap size={14} /> AI AGENT STATUS</div><h3>Agent Readiness</h3></div></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div><strong>Status:</strong> {agentData.agent_status}</div>
+              <div><strong>Approval Mode:</strong> {agentData.recommended_action?.approval || 'REQUIRED'}</div>
+              <div><strong>Retry Limit:</strong> {agentData.recommended_action?.retry_limit || 'N/A'}</div>
+              <div><strong>Reversible:</strong> {agentData.recommended_action?.reversible ? 'Yes' : 'No'}</div>
+            </div>
+          </section>
+
+          <section className="agent-reasoning panel">
+            <div className="panel-heading"><div><div className="section-kicker"><Sparkles size={14} /> AGENT REASONING</div><h3>Structured Reasoning</h3></div></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <p><strong>Summary:</strong> {agentData.reasoning?.summary}</p>
+              <p><strong>Explanation:</strong> {agentData.reasoning?.explanation}</p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                <div><strong>Strength:</strong> {agentData.reasoning?.evidence_strength}</div>
+                <div><strong>Count:</strong> {agentData.reasoning?.evidence_count}</div>
+                <div><strong>Percentage:</strong> {agentData.reasoning?.evidence_percentage}%</div>
+                <div><strong>Blast Radius:</strong> {agentData.reasoning?.blast_radius}</div>
+              </div>
+            </div>
+          </section>
+
+          <section className="agent-projection panel">
+            <div className="panel-heading"><div><div className="section-kicker"><BarChart3 size={14} /> RECOVERY PROJECTION</div><h3>Expected Outcome</h3></div></div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              <div><strong>Revenue at Risk:</strong> {formatCurrency(agentData.revenue_projection?.at_risk)}</div>
+              <div><strong>Expected Recovery Rate:</strong> {Math.round((agentData.revenue_projection?.expected_recovery_rate || 0) * 100)}%</div>
+              <div><strong>Recoverable Amount:</strong> {formatCurrency(agentData.revenue_projection?.recoverable)}</div>
+            </div>
+          </section>
+        </div>
+      )}
 
       <div className="detail-footer-note"><span className={`footer-status-dot status-${meta.tone}`} />{meta.label} · all actions are written to the audit trail</div>
     </section>

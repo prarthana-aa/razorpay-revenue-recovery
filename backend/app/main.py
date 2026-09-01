@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from . import models, generator
+from . import models, generator, agent
 from .database import engine, get_db, Base
 
 Base.metadata.create_all(bind=engine)
@@ -150,6 +150,14 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
     if not case:
         raise HTTPException(404, "Case not found")
     return _serialize_case(case, include_timeline=True, db=db)
+
+
+@app.get("/api/agent/{case_id}")
+def get_agent(case_id: int, db: Session = Depends(get_db)):
+    case = db.get(models.Case, case_id)
+    if not case:
+        raise HTTPException(404, "Case not found")
+    return agent.run_agent(case)
 
 
 @app.post("/api/cases/{case_id}/approve")
