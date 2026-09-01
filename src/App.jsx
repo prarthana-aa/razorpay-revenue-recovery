@@ -8,7 +8,7 @@ import {
   Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, BarChart3,
   Bell, Check, CheckCircle2, ChevronRight, Clock3, Database,
   FileClock, IndianRupee, LayoutDashboard, ListFilter, Loader2,
-  RefreshCw, RotateCcw, Search, Settings2, ShieldAlert,
+  RefreshCw, RotateCcw, Search, ShieldAlert,
   Sparkles, Upload, X, XCircle, Zap, BrainCircuit, Play
 } from "lucide-react";
 
@@ -167,7 +167,7 @@ function EmptyState({ onGenerate, generating }) {
       <div className="eyebrow">SYSTEM READY · NO ACTIVE BATCH</div>
       <h2>Start your first recovery run</h2>
       <p>Generate a fresh transaction cohort to map payment health, surface competing root causes, and create an operator-ready case queue.</p>
-      <button className="action-button primary" onClick={onGenerate} disabled={generating}>
+      <button className="action-button success" onClick={onGenerate} disabled={generating}>
         {generating ? <Loader2 size={16} className="spin" /> : <Zap size={16} />}
         {generating ? "Building signal map…" : "Generate new batch"}
       </button>
@@ -334,6 +334,8 @@ export default function App() {
     setDemoBanner(null); setDemoSummary(true);
   }
 
+  // Retained for the legacy investigation workspace flow.
+  // eslint-disable-next-line no-unused-vars
   async function approveDemo() {
     if (!demo) return;
     const { caseId, targetTx, targetAmount } = demo;
@@ -347,6 +349,7 @@ export default function App() {
     setDemo((d) => ({ ...d, running: false, paused: false, progress: 1, recoveredTx: targetTx, recoveredAmount: targetAmount, index: 7, events: [...d.events, { message: "Recovery executed.", state: "EXECUTING", time: new Date().toLocaleTimeString([], { hour12: false }) }, { message: "Revenue recovered.", state: "RECOVERED", time: new Date().toLocaleTimeString([], { hour12: false }) }] }));
   }
 
+  // eslint-disable-next-line no-unused-vars
   async function rejectDemo() {
     if (!demo) return;
     await transition(demo.caseId, "ESCALATED", "Operator rejected recovery. Case escalated.");
@@ -370,7 +373,7 @@ export default function App() {
   const metrics = dashboard || { recovered: 0, recoverable: 0, resolution_rate: 0, escalation_rate: 0, flagged_segments: 0 };
   const filteredCases = cases.filter((item) => {
     const matchesSearch = `${item.segment} ${item.id}`.toLowerCase().includes(caseSearch.toLowerCase());
-    const matchesFilter = caseFilter === "all" || item.status === caseFilter;
+    const matchesFilter = caseFilter === "all" || (caseFilter === "live" && item.lifecycle !== "RECOVERED" && item.lifecycle !== "ESCALATED") || (caseFilter === "critical" && ["high", "critical"].includes((item.severity || "").toLowerCase())) || item.status === caseFilter;
     return matchesSearch && matchesFilter;
   });
   const pendingCount = cases.filter((item) => item.status === "pending").length;
@@ -384,15 +387,11 @@ export default function App() {
           <div className="brand-mark"><ShieldAlert size={18} /></div>
           <div><strong>Razorpay</strong><span>RECOVERY OS</span></div>
         </div>
-        <div className="workspace-label">OPERATIONS CONSOLE</div>
         <nav className="side-nav" aria-label="Primary navigation">
           <button className={`side-nav-item ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}><LayoutDashboard size={17} /><span>Mission control</span><kbd>01</kbd></button>
           <button className={`side-nav-item ${tab === "cases" ? "active" : ""}`} onClick={() => setTab("cases")}><ListFilter size={17} /><span>Case queue</span>{pendingCount > 0 && <b>{pendingCount}</b>}</button>
           <button className={`side-nav-item ${tab === "audit" ? "active" : ""}`} onClick={() => setTab("audit")}><FileClock size={17} /><span>Audit trail</span><kbd>03</kbd></button>
         </nav>
-        <div className="sidebar-divider" />
-        <div className="side-nav-caption">SYSTEM</div>
-        <button className="side-nav-item muted"><Settings2 size={17} /><span>Console settings</span></button>
         <div className="sidebar-bottom">
           <div className="live-status"><span className="live-dot" /><div><strong>Detection engine live</strong><span>Rule set v2.4 · calibrated</span></div></div>
           <div className="sidebar-footnote"><Database size={13} /> SQLite session store</div>
@@ -422,7 +421,7 @@ export default function App() {
           <EmptyState onGenerate={generate} generating={generating} />
         ) : (
           <>
-            <section className="page-heading">
+            {tab !== "cases" && <section className="page-heading">
               <div>
                 <div className="eyebrow"><span className="eyebrow-pulse" />AI REVENUE RECOVERY <span className="eyebrow-separator">/</span> TRACK 03</div>
                 <h1>{tab === "overview" ? "Payment health, at a glance." : tab === "cases" ? "Investigate with confidence." : "Every decision, replayable."}</h1>
@@ -432,22 +431,22 @@ export default function App() {
                 <button className="action-button ghost" onClick={downloadSampleCsv}><FileClock size={15} />Sample CSV</button>
                 <label className={`action-button ghost ${generating ? "disabled" : ""}`}><Upload size={15} />Upload data<input type="file" accept=".csv" disabled={generating} onChange={(e) => { uploadCsv(e.target.files[0]); e.target.value = ""; }} /></label>
                 <button className="action-button demo-button" onClick={runDemo} disabled={!selectedId || demo?.running}>{demo?.running ? <Loader2 size={15} className="spin" /> : <Play size={15} />}{demo?.running ? "Running Recovery…" : demoSummary ? "Run Again" : "Run AI Recovery Demo"}</button>
-                <button className="action-button primary" onClick={generate} disabled={generating}>{generating ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}{generating ? "Running…" : "Generate batch"}</button>
+                <button className="action-button success" onClick={generate} disabled={generating}>{generating ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}{generating ? "Running…" : "Generate batch"}</button>
               </div>
-            </section>
+            </section>}
 
-            <div className="tab-bar">
+            {tab !== "overview" && tab !== "cases" && <div className="tab-bar">
               <TabButton icon={BarChart3} active={tab === "overview"} onClick={() => setTab("overview")}>Overview</TabButton>
               <TabButton icon={ListFilter} active={tab === "cases"} onClick={() => setTab("cases")}>Case Queue <span className="tab-count">{cases.length}</span></TabButton>
               <TabButton icon={FileClock} active={tab === "audit"} onClick={() => setTab("audit")}>Audit Trail</TabButton>
               <div className="tab-bar-meta"><span className="live-dot" />SYNCED JUST NOW <span className="meta-divider" />BATCH #{cases.length ? String(cases[0].id).padStart(4, "0") : "—"}</div>
-            </div>
+            </div>}
 
             {tab === "overview" && (
               <Overview chart={chart} metrics={metrics} cases={cases} healthScore={healthScore} setTab={setTab} setSelectedId={setSelectedId} demo={demo} />
             )}
             {tab === "cases" && (
-              <CaseQueue
+                <CaseQueueRedesigned
                 cases={filteredCases}
                 allCases={cases}
                 selectedId={selectedId}
@@ -457,7 +456,8 @@ export default function App() {
                 setCaseSearch={setCaseSearch}
                 caseFilter={caseFilter}
                 setCaseFilter={setCaseFilter}
-                doAction={doAction} demo={demo} approveDemo={approveDemo} rejectDemo={rejectDemo}
+                doAction={doAction} demo={demo}
+                downloadSampleCsv={downloadSampleCsv} uploadCsv={uploadCsv} generate={generate} runDemo={runDemo} generating={generating} demoSummary={demoSummary}
               />
             )}
             {tab === "audit" && <AuditTrail cases={cases} demo={demo} />}
@@ -469,7 +469,9 @@ export default function App() {
   );
 }
 
-function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId, demo }) {
+// Kept as a compatibility reference while Mission Control uses the editorial view below.
+// eslint-disable-next-line no-unused-vars
+function OverviewLegacy({ chart, metrics, cases, healthScore, setTab, setSelectedId, demo }) {
   const queueCount = cases.filter((item) => item.status === "pending").length;
   const active = cases.filter((item) => !["RECOVERED", "ESCALATED"].includes(item.lifecycle)).length;
   const risk = cases.reduce((sum, item) => sum + item.window_failed * item.avg_amount, 0);
@@ -539,7 +541,77 @@ function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId, d
   );
 }
 
-function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail, caseSearch, setCaseSearch, caseFilter, setCaseFilter, doAction, demo, approveDemo, rejectDemo }) {
+function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId, demo }) {
+  const active = cases.filter((item) => !["RECOVERED", "ESCALATED"].includes(item.lifecycle)).length;
+  const risk = cases.reduce((sum, item) => sum + item.window_failed * item.avg_amount, 0);
+  const recovered = demo?.recoveredAmount || metrics.recovered;
+  const lastRow = chart?.rows?.[chart.rows.length - 1] || {};
+  const values = Object.values(lastRow).filter((value) => typeof value === "number");
+  const channels = ["UPI", "Cards", "Wallet", "Net Banking"];
+  return <div className="mission-control-page">
+    <section className="mission-hero panel"><div><div className="section-kicker"><BrainCircuit size={14} /> MISSION CONTROL <span className="eyebrow-separator">·</span> LIVE RECOVERY BATCH #{String(cases[0]?.id || 1).padStart(4, "0")}</div><h2>Payment health, quietly recovering.</h2><p>Monitoring payment infrastructure across gateways, issuers, and merchant segments in real time.</p></div><div className="hero-badges"><span className="confidence-chip">LIVE BATCH</span><span className="confidence-chip sage-chip"><span className="live-dot" />DETECTION ENGINE LIVE</span><small>Last synced just now</small></div></section>
+    <section className="mission-kpis"><MetricCard icon={Activity} label="ACTIVE INVESTIGATIONS" value={active} sub="segments needing attention" color={C.blue} /><MetricCard icon={AlertTriangle} label="REVENUE CURRENTLY AT RISK" value={formatCurrency(risk)} sub="across flagged segments" color={C.amber} /><MetricCard icon={IndianRupee} label="REVENUE RECOVERED TODAY" value={formatCurrency(recovered)} sub={demo?.running ? "recovery in motion" : "confirmed outcomes"} color={C.green} /><MetricCard icon={demo?.running ? Loader2 : Activity} label="ENGINE STATUS" value={demo?.running ? "Recovering" : "Monitoring"} sub="autonomous investigation loop active" color={C.green} /></section>
+    <section className="health-chart-card panel"><div className="panel-heading"><div><div className="section-kicker"><Activity size={14} /> LIVE PAYMENT HEALTH</div><h3>Live payment health</h3><p className="panel-description">Payment success across issuer × method combinations over the last 21 days.</p></div><span className="time-chip"><Clock3 size={13} />21 DAY WINDOW</span></div>{chart ? <div className="full-chart"><ResponsiveContainer><LineChart data={chart.rows} margin={{ top: 18, right: 16, left: -18, bottom: 0 }}><CartesianGrid stroke={C.borderSoft} vertical={false} /><XAxis dataKey="day" tick={{ fill: C.textFaint, fontSize: 10, fontFamily: fontMono }} axisLine={false} tickLine={false} /><YAxis domain={[30, 100]} tick={{ fill: C.textFaint, fontSize: 10, fontFamily: fontMono }} axisLine={false} tickLine={false} /><ReferenceLine x={`D${chart.anomaly_start}`} stroke={C.amber} strokeDasharray="3 5" /><Tooltip contentStyle={{ background: "#111111", border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 12, fontFamily: fontMono }} /><Legend wrapperStyle={{ display: "none" }} />{chart.segments.map((s, i) => <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={SEGMENT_LINE_COLORS[i % SEGMENT_LINE_COLORS.length]} strokeWidth={1.7} dot={false} connectNulls animationDuration={1400} />)}</LineChart></ResponsiveContainer></div> : <div className="chart-placeholder">No chart data available for this batch.</div>}<div className="health-chips">{channels.map((label, index) => <div className="health-chip" key={label}><span className={`chip-dot chip-dot-${index}`} /><span>{label} Success</span><strong>{Math.round(values[index] || healthScore)}%</strong></div>)}</div></section>
+    <section className="queue-snapshot panel"><div className="panel-heading"><div><div className="section-kicker"><ListFilter size={14} /> RECOVERY QUEUE SNAPSHOT</div><h3>What needs attention next</h3></div><button className="inline-link" onClick={() => setTab("cases")}>View all cases <ArrowUpRight size={14} /></button></div><div className="queue-table-head"><span>MERCHANT / SEGMENT</span><span>SEVERITY</span><span>REVENUE AT RISK</span><span>CURRENT STATUS</span><span>RECOVERY AMOUNT</span></div>{cases.slice(0, 5).map((item, index) => <button className="queue-table-row" style={{ "--entry-delay": `${index * 70}ms` }} key={item.id} onClick={() => { setSelectedId(item.id); setTab("cases"); }}><strong>{item.segment}</strong><span className={`severity-label severity-text-${item.severity || "medium"}`}>{(item.severity || "medium").toUpperCase()}</span><span>{formatCurrency(item.window_failed * item.avg_amount)}</span><LifecycleChip state={item.lifecycle} /><span>{formatCurrency(item.recovered_amount || 0)}</span></button>)}</section>
+    <section className="reasoning-summary panel"><div className="panel-heading"><div><div className="section-kicker"><Sparkles size={14} /> AI REASONING SUMMARY</div><h3>How the engine is thinking</h3></div><span className="confidence-chip">CONFIDENCE FLOOR · 45%</span></div><div className="reasoning-cards"><ReasoningCard icon={Sparkles} title="Competing hypotheses" text="Live failure-code signals are ranked against baseline behavior before a cause is selected." /><ReasoningCard icon={ShieldAlert} title="Abstention policy" text="Thin or ambiguous evidence is escalated instead of triggering an unsafe action." /><ReasoningCard icon={RotateCcw} title="Reversible recovery actions" text="Every approved recovery is bounded, replayable, and visible in the audit trail." /></div></section>
+    <section className="incident-strip panel"><span><b>ACTIVE BATCH</b>#{String(cases[0]?.id || 1).padStart(4, "0")}</span><span><b>MERCHANT COUNT</b>{cases.length}</span><span><b>TRANSACTIONS UNDER REVIEW</b>{cases.reduce((sum, item) => sum + item.window_failed, 0)}</span><span><b>POTENTIAL EXPOSURE</b>{formatCurrency(risk)}</span><span><b>RECOVERED TODAY</b>{formatCurrency(recovered)}</span></section>
+  </div>;
+}
+
+function ReasoningCard({ icon: Icon, title, text }) { return <div className="reasoning-card"><span className="reasoning-icon"><Icon size={15} /></span><strong>{title}</strong><p>{text}</p></div>; }
+
+function CaseQueueRedesigned({ cases, allCases, selectedId, setSelectedId, selectedDetail, caseSearch, setCaseSearch, caseFilter, setCaseFilter, doAction, demo, downloadSampleCsv, uploadCsv, generate, runDemo, generating, demoSummary }) {
+  return <div className="case-queue-page">
+    <section className="case-hero panel"><div><div className="section-kicker"><ListFilter size={14} /> ACTIVE INVESTIGATION <span className="eyebrow-separator">·</span> LIVE CASES</div><h2>Investigate with confidence.</h2><p>Review evidence, validate AI reasoning, and approve bounded recovery actions before execution.</p></div><div className="case-hero-meta"><span className="confidence-chip">LIVE CASES · {allCases.length}</span><small>Synced just now</small><small>Recovery batch #{String(allCases[0]?.id || 1).padStart(4, "0")}</small></div></section>
+    <div className="case-action-toolbar"><span className="section-kicker"><Activity size={14} /> OPERATOR WORKSPACE</span><div className="case-action-hint">Select an incident to inspect its complete investigation file.</div><div className="case-page-actions"><button className="action-button ghost" onClick={downloadSampleCsv}><FileClock size={15} />Sample CSV</button><label className={`action-button ghost ${generating ? "disabled" : ""}`}><Upload size={15} />Upload Data<input type="file" accept=".csv" disabled={generating} onChange={(e) => { uploadCsv(e.target.files[0]); e.target.value = ""; }} /></label><button className="action-button demo-button" onClick={runDemo} disabled={!selectedId || demo?.running}><Play size={15} />{demo?.running ? "Running Recovery…" : demoSummary ? "Run Again" : "Run AI Recovery Demo"}</button><button className="action-button success" onClick={generate} disabled={generating}><RefreshCw size={15} />Generate Batch</button></div></div>
+    <div className="investigation-layout"><InvestigationQueueList cases={cases} allCases={allCases} selectedId={selectedId} setSelectedId={setSelectedId} caseSearch={caseSearch} setCaseSearch={setCaseSearch} caseFilter={caseFilter} setCaseFilter={setCaseFilter} demo={demo} />{selectedDetail ? <IncidentWorkspaceRebuild detail={selectedDetail} doAction={doAction} demo={demo} /> : <section className="diagnosis-empty panel"><div className="empty-visual"><ListFilter size={23} /></div><h2>Select an investigation</h2><p>Choose a case from the queue to inspect the evidence and recovery recommendation.</p></section>}</div>
+  </div>;
+}
+
+function InvestigationQueueList({ cases, allCases, selectedId, setSelectedId, caseSearch, setCaseSearch, caseFilter, setCaseFilter, demo }) {
+  return <aside className="investigation-queue panel"><div className="case-sidebar-head"><div><div className="section-kicker"><ListFilter size={14} /> INVESTIGATION QUEUE</div><h3>Live Investigations</h3></div><span className="queue-count">{allCases.length}</span></div><div className="search-field"><Search size={15} /><input value={caseSearch} onChange={(e) => setCaseSearch(e.target.value)} placeholder="Search merchants…" aria-label="Search cases" />{caseSearch && <button onClick={() => setCaseSearch("")}><X size={13} /></button>}</div><div className="filter-row">{["all", "live", "pending", "approved", "abstained", "critical"].map((filter) => <button key={filter} className={caseFilter === filter ? "selected" : ""} onClick={() => setCaseFilter(filter)}>{filter === "all" ? "All" : filter === "pending" ? "Awaiting Approval" : filter === "approved" ? "Recovered" : filter === "abstained" ? "Escalated" : filter[0].toUpperCase() + filter.slice(1)}</button>)}</div><div className="investigation-list">{demo?.running && <DemoCaseStream demo={demo} />}{cases.map((item, index) => <button key={item.id} className={`investigation-card ${item.id === selectedId ? "selected" : ""} ${item.lifecycle === "RECOVERED" ? "card-recovered" : item.lifecycle === "AWAITING_APPROVAL" ? "card-awaiting" : item.severity === "high" ? "card-critical" : ""}`} style={{ "--entry-delay": `${index * 55}ms` }} onClick={() => setSelectedId(item.id)}><div className="investigation-card-top"><strong>{item.segment}</strong><LifecycleChip state={item.lifecycle} /></div><span className="investigation-method">{item.window_failed} failures · {Math.round(item.baseline_rate - item.current_rate)}pt drop</span><div className="investigation-card-bottom"><span className={`severity-label severity-text-${item.severity || "medium"}`}>{(item.severity || "medium").toUpperCase()}</span><b>{formatCurrency(item.window_failed * item.avg_amount)} at risk</b></div></button>)}</div></aside>;
+}
+
+function IncidentWorkspaceRebuild({ detail, doAction, demo }) {
+  const [agentData, setAgentData] = useState(null);
+  useEffect(() => { fetch(`${API_BASE}/api/agent/${detail.id}`).then((res) => res.json()).then(setAgentData).catch(() => setAgentData(null)); }, [detail.id]);
+  const top = detail.hypotheses?.[0];
+  const projection = agentData?.revenue_projection || {};
+  const policy = agentData?.recommended_action || detail.recommendation || {};
+  const demoRecovered = demo?.caseId === detail.id && demo.progress === 1;
+  const drop = Math.round((detail.baseline_rate - detail.current_rate) * 10) / 10;
+  return <section className="incident-workspace">
+    <section className="incident-hero-card panel"><div><div className="section-kicker">CASE FILE <span className="eyebrow-separator">·</span> LIVE INVESTIGATION</div><h2>{detail.segment} success rate collapsed by {drop} percentage points.</h2><p>{detail.window_failed} failed transactions detected across the anomaly window with projected exposure of {formatCurrency(detail.window_failed * detail.avg_amount)}.</p></div><div className="incident-hero-badges"><LifecycleChip state={detail.lifecycle} /><span className={`severity-label severity-text-${detail.severity || "medium"}`}>{(detail.severity || "medium").toUpperCase()} SEVERITY</span><small>Started just now</small></div></section>
+    <section className="incident-snapshot panel"><div className="section-kicker">INCIDENT SNAPSHOT</div><div className="incident-snapshot-grid"><span>BASELINE SUCCESS<strong>{detail.baseline_rate}%</strong></span><span>CURRENT SUCCESS<strong className="semantic-critical">{detail.current_rate}%</strong></span><span>REVENUE AT RISK<strong className="semantic-warning">{formatCurrency(detail.window_failed * detail.avg_amount)}</strong></span><span>FAILED TRANSACTIONS<strong>{detail.window_failed}</strong></span></div><p>{detail.window_failed} failed transactions detected across the anomaly window with a projected revenue exposure of {formatCurrency(detail.window_failed * detail.avg_amount)}.</p></section>
+    <section className="primary-diagnosis panel"><div className="panel-heading"><div><div className="section-kicker"><Sparkles size={14} /> WHY THE ENGINE THINKS THIS HAPPENED</div><h3>Primary Diagnosis</h3></div><span className="confidence-chip">RANKED SIGNALS</span></div><div className="diagnosis-list">{detail.hypotheses?.map((h, index) => <div className={`diagnosis-card ${index === 0 ? "primary" : "collapsed"}`} key={h.code}><span className="diagnosis-rank">0{index + 1}</span><div><div className="diagnosis-card-title"><strong>{CODE_LABEL[h.code] || h.code}</strong><b>{Math.round(h.confidence * 100)}%</b></div><small>{h.share || 0} supporting failures</small><ConfidenceBar value={h.confidence} ruledOut={h.ruled_out} color={index === 0 ? C.blue : C.textMuted} /><p>{h.reasoning}</p></div></div>)}</div></section>
+    <section className="forensic-grid"><div className="forensic-evidence panel"><div className="section-kicker"><BarChart3 size={14} /> EVIDENCE SUMMARY</div><h3>Forensic evidence</h3><div className="forensic-cards"><ForensicCard title="Gateway Cluster" value={detail.segment} caption="Payment segment under observation" /><ForensicCard title="Failure Code Distribution" value={top?.code ? CODE_LABEL[top.code] : "Mixed signals"} caption={`${top?.share || 0} supporting failures in window`} /><ForensicCard title="Blast Radius" value={`${detail.window_failed} failed attempts`} caption={`${detail.current_rate}% current success`} /><ForensicCard title="Affected Merchants" value="1 payment segment" caption="Issuer × method cohort" /><ForensicCard title="Time Window" value="Recent anomaly period" caption={`${detail.window_attempts} attempts observed`} /><ForensicCard title="Average Transaction" value={formatCurrency(detail.avg_amount)} caption="Mean ticket size in window" /></div></div><div className="decision-flow panel"><div className="section-kicker"><BrainCircuit size={14} /> DECISION PIPELINE</div><h3>How the recommendation formed</h3><div className="pipeline-horizontal">{["Detect", "Aggregate", "Diagnose", "Recommend", "Await Approval"].map((step, index) => <div className="flow-node" key={step}><span>0{index + 1}</span><strong>{step}</strong></div>)}</div></div></section>
+    <section className={`recommendation-card recommendation-sticky panel ${detail.lifecycle === "RECOVERED" || demoRecovered ? "recovered" : ""}`}><div className="recommendation-copy"><div className="section-kicker"><Zap size={14} /> RECOMMENDED ACTION</div><h3>{detail.lifecycle === "RECOVERED" || demoRecovered ? "Recovery receipt" : "A bounded recovery is ready."}</h3><p>{detail.diagnosis_summary || detail.recommendation?.label || ACTION_LABEL[top?.code] || "Operator review required before execution."}</p><div className="safe-note"><ShieldAlert size={14} />Why safe: {policy.reversible === false ? "bounded policy with operator oversight" : "reversible policy with bounded retries"}.</div></div><div className="recommendation-outcome"><div className="outcome-grid"><span>CONFIDENCE<strong>{Math.round((agentData?.confidence || top?.confidence || 0) * 100)}%</strong></span><span>RECOVERABLE REVENUE<strong>{formatCurrency(demoRecovered ? demo.recoveredAmount : detail.recovered_amount || projection.recoverable)}</strong></span><span>EXPECTED RATE<strong>{Math.round((projection.expected_recovery_rate || 0) * 100)}%</strong></span><span>AFFECTED TRANSACTIONS<strong>{demoRecovered ? demo.recoveredTx : detail.recovered_tx || detail.window_failed}</strong></span><span>RETRY LIMIT<strong>{policy.retry_limit ?? "—"}</strong></span><span>REVERSIBLE POLICY<strong>{policy.reversible === false ? "No" : "Yes"}</strong></span></div>{detail.status === "pending" && !demoRecovered && <div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={() => doAction(detail.id, "approve")}><CheckCircle2 size={15} />Approve Recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={() => doAction(detail.id, "reject")}><ShieldAlert size={15} />Escalate Investigation</button></div>}{(detail.status === "approved" || demoRecovered) && <div className="outcome-block"><Check size={16} /><div><strong>Recovered {formatCurrency(demoRecovered ? demo.recoveredAmount : detail.recovered_amount)}</strong><span>{demoRecovered ? demo.recoveredTx : detail.recovered_tx} retries completed · audit trail written</span>{!demoRecovered && <button className="text-button" onClick={() => doAction(detail.id, "revert")}><RotateCcw size={13} />Revert recovery</button>}</div></div>}</div></section>
+    {demo?.caseId === detail.id && <LiveAgentActivity demo={demo} />}
+  </section>;
+}
+
+function ForensicCard({ title, value, caption }) { return <div className="forensic-card"><span>{title}</span><strong>{value}</strong><small>{caption}</small></div>; }
+
+// eslint-disable-next-line no-unused-vars
+function InvestigationFile({ detail, doAction, demo }) {
+  const [agentData, setAgentData] = useState(null);
+  useEffect(() => { fetch(`${API_BASE}/api/agent/${detail.id}`).then((res) => res.json()).then(setAgentData).catch(() => setAgentData(null)); }, [detail.id]);
+  const top = detail.hypotheses?.[0];
+  const projection = agentData?.revenue_projection || {};
+  const policy = agentData?.recommended_action || detail.recommendation || {};
+  const evidence = detail.evidence || [];
+  const demoRecovered = demo?.caseId === detail.id && demo.progress === 1;
+  return <section className="investigation-file">
+    <section className="incident-summary-card panel"><div className="case-file-title"><div><div className="section-kicker">INCIDENT SUMMARY</div><h3>{detail.segment}</h3><p>Payment Segment · Live Investigation</p></div><LifecycleChip state={detail.lifecycle} /></div><div className="incident-metrics"><div><span>BASELINE SUCCESS</span><strong>{detail.baseline_rate}%</strong></div><div><span>CURRENT SUCCESS</span><strong className="semantic-critical">{detail.current_rate}%</strong></div><div><span>FAILED IN WINDOW</span><strong>{detail.window_failed}</strong></div><div><span>REVENUE AT RISK</span><strong className="semantic-warning">{formatCurrency(detail.window_failed * detail.avg_amount)}</strong></div></div><p className="incident-sentence">{detail.window_failed} failed transactions detected across the anomaly window with a projected revenue exposure of {formatCurrency(detail.window_failed * detail.avg_amount)}.</p></section>
+    <section className="root-cause-card panel"><div className="panel-heading"><div><div className="section-kicker"><Sparkles size={14} /> ROOT CAUSE ANALYSIS</div><h3>Competing hypotheses</h3></div><span className="confidence-chip">{detail.hypotheses?.length || 0} SIGNALS</span></div><div className="hypothesis-rows">{detail.hypotheses?.map((hypothesis, index) => <div className={`hypothesis-row ${index === 0 && !hypothesis.ruled_out ? "leading" : ""}`} key={hypothesis.code}><span className="hypothesis-rank">0{index + 1}</span><div className="hypothesis-main"><div><strong>{CODE_LABEL[hypothesis.code] || hypothesis.code}</strong><small>{hypothesis.share || 0} supporting failures</small></div><div className="hypothesis-confidence">{Math.round(hypothesis.confidence * 100)}%</div><ConfidenceBar value={hypothesis.confidence} ruledOut={hypothesis.ruled_out} color={index === 0 ? C.blue : C.textMuted} /><p>{hypothesis.reasoning}</p></div></div>)}</div></section>
+    <section className="evidence-reasoning-grid"><section className="evidence-summary-card panel"><div className="section-kicker"><BarChart3 size={14} /> EVIDENCE SUMMARY</div><h3>Observed signals</h3><div className="evidence-chips">{evidence.slice(0, 6).map((item, index) => <span key={index}>{item.signal || item.label || "Failure signal"}<b>{item.value || item.impact || "Detected"}</b></span>)}<span>Time window<b>Recent anomaly period</b></span><span>Blast radius<b>{detail.window_attempts} attempts</b></span></div></section><section className="structured-reasoning-card panel"><div className="section-kicker"><BrainCircuit size={14} /> STRUCTURED AI REASONING</div><h3>Decision pipeline</h3><div className="reasoning-pipeline">{[["Primary Diagnosis", CODE_LABEL[agentData?.primary_diagnosis] || CODE_LABEL[top?.code] || "Evaluating"],["Confidence", `${Math.round((agentData?.confidence || top?.confidence || 0) * 100)}%`],["Evidence Aggregation", `${evidence.length || 0} independent signals`],["Recovery Policy", policy.action || "Manual review"],["Final Recommendation", detail.recommendation?.label || ACTION_LABEL[top?.code] || "Operator review required"]].map(([label, value], index) => <div className="pipeline-step" key={label}><span>0{index + 1}</span><div><small>{label}</small><strong>{value}</strong></div></div>)}</div></section></section>
+    <section className={`recommendation-card panel ${detail.lifecycle === "RECOVERED" || demoRecovered ? "recovered" : ""}`}><div className="recommendation-copy"><div className="section-kicker"><Zap size={14} /> RECOVERY RECOMMENDATION</div><h3>{detail.lifecycle === "RECOVERED" || demoRecovered ? "Recovery outcome confirmed." : "Recommended recovery action"}</h3><p>{detail.diagnosis_summary || detail.recommendation?.label || ACTION_LABEL[top?.code] || "No automated action recommended."}</p>{detail.lifecycle !== "RECOVERED" && !demoRecovered && <div className="recovery-boundary"><ShieldAlert size={14} />Bounded action · operator approval required</div>}</div><div className="recommendation-outcome"><span className="action-label">{detail.lifecycle === "RECOVERED" || demoRecovered ? "OUTCOME LOGGED" : "PROJECTED OUTCOME"}</span><div className="outcome-grid"><span>Recoverable Revenue<strong>{formatCurrency(demoRecovered ? demo.recoveredAmount : detail.recovered_amount || projection.recoverable)}</strong></span><span>Recovery Rate<strong>{Math.round((projection.expected_recovery_rate || 0) * 100)}%</strong></span><span>Affected Transactions<strong>{demoRecovered ? demo.recoveredTx : detail.recovered_tx || detail.window_failed}</strong></span><span>Reversible<strong>{policy.reversible === false ? "No" : "Yes"}</strong></span><span>Retry Limit<strong>{policy.retry_limit ?? "—"}</strong></span><span>Approval Mode<strong>{policy.approval || "REQUIRED"}</strong></span></div>{detail.status === "pending" && !demoRecovered && <div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={() => doAction(detail.id, "approve")}><CheckCircle2 size={15} />Approve recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={() => doAction(detail.id, "reject")}><XCircle size={15} />Reject</button></div>}{(detail.status === "approved" || demoRecovered) && <div className="outcome-block"><Check size={16} /><div><strong>Recovered {formatCurrency(demoRecovered ? demo.recoveredAmount : detail.recovered_amount)}</strong><span>{demoRecovered ? demo.recoveredTx : detail.recovered_tx} transactions · outcome logged</span>{!demoRecovered && <button className="text-button" onClick={() => doAction(detail.id, "revert")}><RotateCcw size={13} />Mark ineffective / revert</button>}</div></div>}</div></section>
+    {demo?.caseId === detail.id && demo.activeDemoCase >= 0 && <DemoDecisionCard demo={demo} />} {demo?.caseId === detail.id && <LiveAgentActivity demo={demo} />}
+  </section>;
+}
+
+// eslint-disable-next-line no-unused-vars
+function CaseQueueLegacy({ cases, allCases, selectedId, setSelectedId, selectedDetail, caseSearch, setCaseSearch, caseFilter, setCaseFilter, doAction, demo, approveDemo, rejectDemo }) {
   return (
     <div className="case-workspace">
       <aside className="case-sidebar panel">
