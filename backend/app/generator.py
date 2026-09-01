@@ -681,6 +681,7 @@ def analyze_batch(db, batch_id: int, anomaly_start: int):
             top_confidence=top_confidence,
             hypotheses_json=__import__("json").dumps(hypotheses),
             status="abstained" if abstained else "pending",
+            lifecycle="ESCALATED" if abstained else "DETECTED",
             # new explainable diagnosis fields
             diagnosis_category=category,
             severity=severity,

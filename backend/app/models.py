@@ -40,6 +40,7 @@ class Case(Base):
     top_confidence = Column(Float, nullable=True)
     hypotheses_json = Column(String)
     status = Column(String, default="pending")
+    lifecycle = Column(String, default="DETECTED")
     reverted = Column(Boolean, default=False)
     recovered_amount = Column(Float, nullable=True)
     recovered_tx = Column(Integer, nullable=True)

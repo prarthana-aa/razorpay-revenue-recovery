@@ -21,6 +21,7 @@ _NEW_CASE_COLS = [
     "ALTER TABLE cases ADD COLUMN evidence_json TEXT",
     "ALTER TABLE cases ADD COLUMN recommendation_json TEXT",
     "ALTER TABLE cases ADD COLUMN abstain_reason TEXT",
+    "ALTER TABLE cases ADD COLUMN lifecycle TEXT DEFAULT 'DETECTED'",
 ]
 with engine.connect() as _conn:
     for _stmt in _NEW_CASE_COLS:
@@ -50,6 +51,7 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
         "window_failed": c.window_failed,
         "avg_amount": c.avg_amount,
         "status": c.status,
+        "lifecycle": c.lifecycle or ("ESCALATED" if c.status in ("abstained", "escalated-reviewed") else "RECOVERED" if c.status == "approved" and not c.reverted else "DETECTED"),
         "reverted": c.reverted,
         "recovered_amount": c.recovered_amount,
         "recovered_tx": c.recovered_tx,
@@ -159,11 +161,23 @@ def get_agent(case_id: int, db: Session = Depends(get_db)):
         raise HTTPException(404, "Case not found")
     return agent.run_agent(case)
 
+@app.post("/api/cases/{case_id}/lifecycle")
+def update_lifecycle(case_id: int, state: str, event: str = "", db: Session = Depends(get_db)):
+    allowed = {"DETECTED", "INVESTIGATING", "READY", "AWAITING_APPROVAL", "EXECUTING", "RECOVERED", "ESCALATED"}
+    case = db.get(models.Case, case_id)
+    if not case or state not in allowed:
+        raise HTTPException(400, "Invalid lifecycle transition")
+    case.lifecycle = state
+    if event:
+        db.add(models.TimelineEvent(case_id=case.id, event=event))
+    db.commit()
+    return _serialize_case(case)
+
 
 @app.post("/api/cases/{case_id}/approve")
 def approve_case(case_id: int, db: Session = Depends(get_db)):
     case = db.get(models.Case, case_id)
-    if not case or case.status != "pending":
+    if not case or case.status not in ("pending", "approved") or case.reverted:
         raise HTTPException(400, "Case cannot be approved from its current status")
 
     hypotheses = json.loads(case.hypotheses_json)
@@ -174,6 +188,7 @@ def approve_case(case_id: int, db: Session = Depends(get_db)):
     recovered_tx = round(case.window_failed * action["effectiveness"])
 
     case.status = "approved"
+    case.lifecycle = "RECOVERED"
     case.recovered_amount = amount
     case.recovered_tx = recovered_tx
     case.chosen_action = action["label"]
@@ -195,6 +210,7 @@ def reject_case(case_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Case cannot be rejected from its current status")
 
     case.status = "rejected"
+    case.lifecycle = "ESCALATED"
     db.add(models.TimelineEvent(case_id=case.id, event="Operator rejected the recommended action. No recovery attempted."))
     db.commit()
     return _serialize_case(case)
@@ -207,6 +223,7 @@ def revert_case(case_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Case cannot be reverted")
 
     case.reverted = True
+    case.lifecycle = "READY"
     db.add(models.TimelineEvent(case_id=case.id, event="Operator flagged the recovery as ineffective and reverted it. Amount removed from recovered total."))
     db.commit()
     return _serialize_case(case)
@@ -219,6 +236,7 @@ def mark_reviewed(case_id: int, db: Session = Depends(get_db)):
         raise HTTPException(400, "Only abstained cases can be marked reviewed")
 
     case.status = "escalated-reviewed"
+    case.lifecycle = "ESCALATED"
     db.add(models.TimelineEvent(case_id=case.id, event="Manual review completed by ops. Outcome logged outside the automated system."))
     db.commit()
     return _serialize_case(case)

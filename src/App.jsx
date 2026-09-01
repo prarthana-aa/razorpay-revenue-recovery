@@ -9,7 +9,7 @@ import {
   Bell, Check, CheckCircle2, ChevronRight, Clock3, Database,
   FileClock, IndianRupee, LayoutDashboard, ListFilter, Loader2,
   RefreshCw, RotateCcw, Search, Settings2, ShieldAlert,
-  Sparkles, TrendingDown, Upload, X, XCircle, Zap
+  Sparkles, Upload, X, XCircle, Zap, BrainCircuit, Play
 } from "lucide-react";
 
 const API_BASE = "http://127.0.0.1:8000";
@@ -36,6 +36,14 @@ const ACTION_LABEL = {
 };
 const CONFIDENCE_FLOOR = 0.45;
 const SEGMENT_LINE_COLORS = [C.green, C.blue, C.amber, C.red, "#c391ff", "#51c7d5"];
+const DEMO_CASES = [
+  { merchant: "Swiggy", amount: 599, reason: "PSP timeout", confidence: 93, strategy: "Switch to backup PSP" },
+  { merchant: "Zomato", amount: 1248, reason: "UPI PSP latency", confidence: 91, strategy: "Adaptive retry interval" },
+  { merchant: "Netflix", amount: 3842, reason: "Issuer decline cluster", confidence: 88, strategy: "Reroute via alternate acquirer" },
+  { merchant: "Spotify", amount: 11644, reason: "Token refresh failure", confidence: 95, strategy: "Update payment token" },
+  { merchant: "Meesho", amount: 7553, reason: "Gateway network error", confidence: 90, strategy: "Retry through healthy gateway" },
+  { merchant: "Blinkit", amount: 0, reason: "Expired card", confidence: 86, strategy: "Prompt alternate payment" },
+];
 
 function formatCurrency(value) {
   return `₹${Math.round(value || 0).toLocaleString("en-IN")}`;
@@ -64,14 +72,24 @@ function statusMeta(status, reverted = false) {
   return map[status] || map.pending;
 }
 
-function Badge({ status, reverted = false }) {
-  const meta = statusMeta(status, reverted);
+function lifecycleMeta(state) {
+  const map = {
+    DETECTED: ["DETECTED", "blue"], INVESTIGATING: ["INVESTIGATING", "blue"],
+    READY: ["READY", "green"], AWAITING_APPROVAL: ["AWAITING APPROVAL", "amber"],
+    EXECUTING: ["EXECUTING", "amber"], RECOVERED: ["RECOVERED", "green"], ESCALATED: ["ESCALATED", "red"]
+  };
+  const [label, tone] = map[state] || map.DETECTED;
+  return { label, tone };
+}
+
+function LifecycleChip({ state }) {
+  const meta = lifecycleMeta(state);
   return <span className={`status-pill status-${meta.tone}`}><span className="status-dot" />{meta.label}</span>;
 }
 
-function Stamp({ status, reverted = false }) {
+function Badge({ status, reverted = false }) {
   const meta = statusMeta(status, reverted);
-  return <div className={`audit-stamp stamp-${meta.tone}`}>{meta.label}</div>;
+  return <span className={`status-pill status-${meta.tone}`}><span className="status-dot" />{meta.label}</span>;
 }
 
 function ConfidenceBar({ value, ruledOut, color }) {
@@ -169,6 +187,10 @@ export default function App() {
   const [dashboard, setDashboard] = useState(null);
   const [caseSearch, setCaseSearch] = useState("");
   const [caseFilter, setCaseFilter] = useState("all");
+  const [demo, setDemo] = useState(null);
+  const [demoToast, setDemoToast] = useState(null);
+  const [demoBanner, setDemoBanner] = useState(null);
+  const [demoSummary, setDemoSummary] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setError(null);
@@ -276,6 +298,62 @@ export default function App() {
     }
   }
 
+  const transition = useCallback(async (caseId, state, event) => {
+    const params = new URLSearchParams({ state, event });
+    await fetch(`${API_BASE}/api/cases/${caseId}/lifecycle?${params}`, { method: "POST" });
+    await fetchAll();
+    await fetchDetail(caseId);
+  }, [fetchAll, fetchDetail]);
+
+  async function runDemo() {
+    if (!selectedId || demo?.running) return;
+    const agent = await (await fetch(`${API_BASE}/api/agent/${selectedId}`)).json();
+    const target = DEMO_CASES.reduce((sum, item) => sum + item.amount, 0);
+    const targetTx = 39;
+    const say = (message, phase) => { setDemoBanner(phase); setDemoToast(message); setTimeout(() => setDemoToast(null), 2300); setDemo((d) => ({ ...d, events: [...(d?.events || []), { message, state: "INVESTIGATING", time: new Date().toLocaleTimeString([], { hour12: false }) }] })); };
+    setTab("overview");
+    setDemoSummary(false);
+    setDemo({ caseId: selectedId, running: true, paused: false, index: 0, events: [], progress: 0, recoveredTx: 0, recoveredAmount: 0, targetTx, targetAmount: target, agent, activeDemoCase: -1, phase: "SCANNING" });
+    say(`AI Recovery Agent started — Batch #${String(cases[0]?.id || 1).padStart(4, "0")}`, "Scanning payment health…");
+    await new Promise((r) => setTimeout(r, 1500));
+    setTab("cases"); say("Detecting degradation clusters…", "Detecting degradation clusters…");
+    await new Promise((r) => setTimeout(r, 1500));
+    say("Building recovery plan…", "Building recovery plan…");
+    for (let i = 0; i < DEMO_CASES.length; i += 1) {
+      setDemo((d) => ({ ...d, activeDemoCase: i, phase: "DIAGNOSING", index: i + 2 }));
+      await new Promise((r) => setTimeout(r, 650));
+      say(`${DEMO_CASES[i].merchant}: ${DEMO_CASES[i].reason} identified.`, "Optimizing recovery strategy…");
+      await new Promise((r) => setTimeout(r, 500));
+      setDemo((d) => ({ ...d, phase: "RETRYING", recoveredAmount: target * (i + 1) / DEMO_CASES.length, recoveredTx: Math.round(targetTx * (i + 1) / DEMO_CASES.length), progress: (i + 1) / DEMO_CASES.length }));
+      say(`${DEMO_CASES[i].merchant}: Payment recovered.`, "Recovery signal confirmed.");
+      await new Promise((r) => setTimeout(r, 650));
+    }
+    setTab("audit"); setDemoBanner("Audit trail synchronized…");
+    await new Promise((r) => setTimeout(r, 2200));
+    setDemo((d) => ({ ...d, running: false, phase: "HEALTHY", recoveredAmount: target, recoveredTx: targetTx, progress: 1 }));
+    setDemoBanner(null); setDemoSummary(true);
+  }
+
+  async function approveDemo() {
+    if (!demo) return;
+    const { caseId, targetTx, targetAmount } = demo;
+    await transition(caseId, "EXECUTING", "Recovery executed.");
+    for (let i = 1; i <= 12; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 110));
+      setDemo((d) => ({ ...d, paused: false, progress: i / 12, recoveredTx: Math.round(targetTx * i / 12), recoveredAmount: targetAmount * i / 12 }));
+    }
+    await fetch(`${API_BASE}/api/cases/${caseId}/approve`, { method: "POST" });
+    await transition(caseId, "RECOVERED", "Revenue recovered.");
+    setDemo((d) => ({ ...d, running: false, paused: false, progress: 1, recoveredTx: targetTx, recoveredAmount: targetAmount, index: 7, events: [...d.events, { message: "Recovery executed.", state: "EXECUTING", time: new Date().toLocaleTimeString([], { hour12: false }) }, { message: "Revenue recovered.", state: "RECOVERED", time: new Date().toLocaleTimeString([], { hour12: false }) }] }));
+  }
+
+  async function rejectDemo() {
+    if (!demo) return;
+    await transition(demo.caseId, "ESCALATED", "Operator rejected recovery. Case escalated.");
+    await fetch(`${API_BASE}/api/cases/${demo.caseId}/reject`, { method: "POST" });
+    setDemo((d) => ({ ...d, running: false, paused: false, index: 7, events: [...d.events, { message: "Recovery rejected and escalated.", state: "ESCALATED", time: new Date().toLocaleTimeString([], { hour12: false }) }] }));
+  }
+
   useEffect(() => {
     (async () => {
       setLoading(true);
@@ -337,6 +415,8 @@ export default function App() {
             <AlertTriangle size={17} /><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss error"><X size={15} /></button>
           </div>
         )}
+        {demoBanner && <div className="agent-banner"><Loader2 size={14} className="spin" />{demoBanner}</div>}
+        {demoToast && <div className="demo-toast"><BrainCircuit size={16} /><span>{demoToast}</span></div>}
 
         {loading ? <LoadingState /> : cases.length === 0 && !error ? (
           <EmptyState onGenerate={generate} generating={generating} />
@@ -351,6 +431,7 @@ export default function App() {
               <div className="heading-actions">
                 <button className="action-button ghost" onClick={downloadSampleCsv}><FileClock size={15} />Sample CSV</button>
                 <label className={`action-button ghost ${generating ? "disabled" : ""}`}><Upload size={15} />Upload data<input type="file" accept=".csv" disabled={generating} onChange={(e) => { uploadCsv(e.target.files[0]); e.target.value = ""; }} /></label>
+                <button className="action-button demo-button" onClick={runDemo} disabled={!selectedId || demo?.running}>{demo?.running ? <Loader2 size={15} className="spin" /> : <Play size={15} />}{demo?.running ? "Running Recovery…" : demoSummary ? "Run Again" : "Run AI Recovery Demo"}</button>
                 <button className="action-button primary" onClick={generate} disabled={generating}>{generating ? <Loader2 size={15} className="spin" /> : <RefreshCw size={15} />}{generating ? "Running…" : "Generate batch"}</button>
               </div>
             </section>
@@ -363,7 +444,7 @@ export default function App() {
             </div>
 
             {tab === "overview" && (
-              <Overview chart={chart} metrics={metrics} cases={cases} healthScore={healthScore} setTab={setTab} setSelectedId={setSelectedId} />
+              <Overview chart={chart} metrics={metrics} cases={cases} healthScore={healthScore} setTab={setTab} setSelectedId={setSelectedId} demo={demo} />
             )}
             {tab === "cases" && (
               <CaseQueue
@@ -376,10 +457,11 @@ export default function App() {
                 setCaseSearch={setCaseSearch}
                 caseFilter={caseFilter}
                 setCaseFilter={setCaseFilter}
-                doAction={doAction}
+                doAction={doAction} demo={demo} approveDemo={approveDemo} rejectDemo={rejectDemo}
               />
             )}
-            {tab === "audit" && <AuditTrail cases={cases} />}
+            {tab === "audit" && <AuditTrail cases={cases} demo={demo} />}
+            {demoSummary && <RecoverySummary demo={demo} batchId={cases[0]?.id || 1} onClose={() => setDemoSummary(false)} />}
           </>
         )}
       </main>
@@ -387,10 +469,22 @@ export default function App() {
   );
 }
 
-function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId }) {
+function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId, demo }) {
   const queueCount = cases.filter((item) => item.status === "pending").length;
+  const active = cases.filter((item) => !["RECOVERED", "ESCALATED"].includes(item.lifecycle)).length;
+  const risk = cases.reduce((sum, item) => sum + item.window_failed * item.avg_amount, 0);
+  const recovering = demo?.running && demo.progress > 0;
   return (
     <div className="overview-grid">
+      <section className="mission-status panel">
+        <div><div className="section-kicker"><BrainCircuit size={14} /> MISSION STATUS</div><h3>Recovery operations, live</h3></div>
+        <div className="mission-metrics">
+          <MetricCard icon={Activity} label="ACTIVE INVESTIGATIONS" value={active} sub={`${queueCount} awaiting operator action`} color={C.blue} />
+          <MetricCard icon={AlertTriangle} label="REVENUE CURRENTLY AT RISK" value={formatCurrency(risk)} sub="across flagged segments" color={C.amber} />
+          <MetricCard icon={IndianRupee} label="REVENUE RECOVERED TODAY" value={formatCurrency(demo?.recoveredAmount || metrics.recovered)} sub={recovering ? "simulation in progress" : "confirmed outcomes"} color={C.green} />
+          <MetricCard icon={recovering ? RefreshCw : Activity} label="AGENT HEALTH" value={recovering ? "Recovering" : active ? "Monitoring" : "Idle"} sub="autonomous investigation loop" color={recovering ? C.amber : C.green} />
+        </div>
+      </section>
       <section className="hero-analytics panel">
         <div className="hero-content">
           <div className="section-kicker"><Activity size={14} /> LIVE PAYMENT HEALTH</div>
@@ -420,13 +514,6 @@ function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId })
         </div>
       </section>
 
-      <section className="metrics-row">
-        <MetricCard icon={IndianRupee} label="RECOVERED" value={formatCurrency(metrics.recovered)} sub={`of ${formatCurrency(metrics.recoverable)} at risk`} color={C.green} trend="+12.4%" />
-        <MetricCard icon={CheckCircle2} label="RESOLUTION RATE" value={`${metrics.resolution_rate}%`} sub="cases with an operator decision" color={C.blue} />
-        <MetricCard icon={AlertTriangle} label="HONEST ESCALATIONS" value={`${metrics.escalation_rate}%`} sub="abstained rather than guessed" color={C.amber} />
-        <MetricCard icon={TrendingDown} label="FLAGGED SEGMENTS" value={metrics.flagged_segments} sub="anomalies this batch" color={C.red} trend={metrics.flagged_segments ? `${metrics.flagged_segments} active` : "0 active"} />
-      </section>
-
       <section className="signal-panel panel">
         <div className="panel-heading"><div><div className="section-kicker"><Zap size={14} /> SIGNAL MONITOR</div><h3>How the engine is thinking</h3></div><span className="confidence-chip">CONFIDENCE FLOOR · 45%</span></div>
         <div className="signal-columns">
@@ -443,7 +530,7 @@ function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId })
             <button className="recent-case" key={item.id} onClick={() => { setSelectedId(item.id); setTab("cases"); }}>
               <span className={`case-severity severity-${item.severity || "medium"}`} />
               <span className="recent-case-main"><strong>{item.segment}</strong><span>CASE-{String(item.id).padStart(4, "0")} · {item.current_rate}% current rate</span></span>
-              <Badge status={item.status} reverted={item.reverted} /><ChevronRight size={15} className="recent-chevron" />
+              <LifecycleChip state={item.lifecycle} /><ChevronRight size={15} className="recent-chevron" />
             </button>
           ))}
         </div>
@@ -452,7 +539,7 @@ function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId })
   );
 }
 
-function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail, caseSearch, setCaseSearch, caseFilter, setCaseFilter, doAction }) {
+function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail, caseSearch, setCaseSearch, caseFilter, setCaseFilter, doAction, demo, approveDemo, rejectDemo }) {
   return (
     <div className="case-workspace">
       <aside className="case-sidebar panel">
@@ -462,26 +549,38 @@ function CaseQueue({ cases, allCases, selectedId, setSelectedId, selectedDetail,
           {["all", "pending", "approved", "abstained"].map((filter) => <button key={filter} className={caseFilter === filter ? "selected" : ""} onClick={() => setCaseFilter(filter)}>{filter === "all" ? "All" : filter === "abstained" ? "Escalated" : filter[0].toUpperCase() + filter.slice(1)} </button>)}
         </div>
         <div className="case-list">
+          {demo?.running && <DemoCaseStream demo={demo} />}
           {cases.length ? cases.map((item) => (
             <button key={item.id} className={`case-list-item ${item.id === selectedId ? "selected" : ""}`} onClick={() => setSelectedId(item.id)}>
               <div className="case-list-top"><span className={`case-severity severity-${item.severity || "medium"}`} /><span>CASE-{String(item.id).padStart(4, "0")}</span><ChevronRight size={14} /></div>
               <strong>{item.segment}</strong>
               <div className="case-rate"><ArrowDownRight size={13} />{item.baseline_rate}% <span>→</span> <b>{item.current_rate}%</b><em>{Math.round(item.baseline_rate - item.current_rate)}pt drop</em></div>
-              <Badge status={item.status} reverted={item.reverted} />
+              <LifecycleChip state={item.lifecycle} />
             </button>
           )) : <div className="no-results"><Search size={20} /><span>No cases match your filter.</span></div>}
         </div>
         <div className="queue-footnote"><Activity size={13} /> Ranking by severity and revenue impact</div>
       </aside>
 
-      {selectedDetail ? <DiagnosisWorkspace detail={selectedDetail} doAction={doAction} /> : (
+      {selectedDetail ? <DiagnosisWorkspace detail={selectedDetail} doAction={doAction} demo={demo} approveDemo={approveDemo} rejectDemo={rejectDemo} /> : (
         <section className="diagnosis-empty panel"><div className="empty-visual"><ListFilter size={23} /></div><h2>Select an investigation</h2><p>Choose a case from the queue to inspect the evidence and recovery recommendation.</p></section>
       )}
     </div>
   );
 }
 
-function DiagnosisWorkspace({ detail, doAction }) {
+function DemoCaseStream({ demo }) {
+  return <div className="demo-case-stream">{DEMO_CASES.map((item, index) => {
+    const active = index === demo.activeDemoCase;
+    const done = index < demo.activeDemoCase;
+    return <div className={`demo-case-row ${active ? "active" : ""} ${done ? "done" : ""}`} key={item.merchant}>
+      <div><strong>{item.merchant}</strong><span>{formatCurrency(item.amount)} · {item.reason}</span></div>
+      <span className={`demo-row-status ${done ? "recovered" : active ? "retrying" : "queued"}`}>{done ? "RECOVERED" : active ? "RETRYING" : "QUEUED"}</span>
+    </div>;
+  })}</div>;
+}
+
+function DiagnosisWorkspace({ detail, doAction, demo, approveDemo, rejectDemo }) {
   const [agentData, setAgentData] = useState(null);
   
   useEffect(() => {
@@ -513,7 +612,7 @@ function DiagnosisWorkspace({ detail, doAction }) {
     <section className="diagnosis-workspace">
       <div className="diagnosis-header panel">
         <div className="diagnosis-title"><span className="case-id">CASE-{String(detail.id).padStart(4, "0")}</span><h2>{detail.segment}</h2><div className="diagnosis-meta"><span><Database size={13} /> Payment segment</span><span><Clock3 size={13} /> Live case</span></div></div>
-        <div className="diagnosis-header-right"><Badge status={detail.status} reverted={detail.reverted} /><div className={`severity-label severity-text-${detail.severity || "medium"}`}>{(detail.severity || "medium").toUpperCase()} SEVERITY</div></div>
+        <div className="diagnosis-header-right"><LifecycleChip state={detail.lifecycle} /><Badge status={detail.status} reverted={detail.reverted} /><div className={`severity-label severity-text-${detail.severity || "medium"}`}>{(detail.severity || "medium").toUpperCase()} SEVERITY</div></div>
       </div>
 
       <div className="evidence-metrics">
@@ -575,7 +674,8 @@ function DiagnosisWorkspace({ detail, doAction }) {
         <div className="recovery-action">
           <div className="action-label">PROPOSED ACTION</div>
           <strong>{detail.recommendation?.label || (topHypothesis ? ACTION_LABEL[topHypothesis.code] : "Manual review required")}</strong>
-          {detail.status === "pending" && <div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={() => doAction(detail.id, "approve")}><CheckCircle2 size={15} />Approve recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={() => doAction(detail.id, "reject")}><XCircle size={15} />Reject</button></div>}
+          {detail.status === "pending" && !demo?.paused && <div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={() => doAction(detail.id, "approve")}><CheckCircle2 size={15} />Approve Recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={() => doAction(detail.id, "reject")}><XCircle size={15} />Reject Recovery</button></div>}
+          {demo?.caseId === detail.id && demo.paused && <div className="approval-card"><ShieldAlert size={16} /><div><strong>Operator Approval Required</strong><span>The policy gate paused the autonomous run before execution.</span><div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={approveDemo}>Approve Recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={rejectDemo}>Reject Recovery</button></div></div></div>}
           {detail.status === "abstained" && <div className="abstain-block"><AlertTriangle size={16} /><div><strong>Confidence below the {Math.round(CONFIDENCE_FLOOR * 100)}% automation floor.</strong><span>{detail.abstain_reason || "No automated recovery was attempted. This case was escalated for manual review instead of guessing."}</span><button className="text-button" onClick={() => doAction(detail.id, "mark-reviewed")}>Mark reviewed by ops <ArrowUpRight size={13} /></button></div></div>}
           {detail.status === "approved" && <div className={`outcome-block ${detail.reverted ? "reverted" : ""}`}><Check size={16} /><div><strong>{detail.reverted ? "Recovery reverted" : `${formatCurrency(detail.recovered_amount)} recovered`}</strong><span>{detail.reverted ? "The action was marked ineffective and removed from recovered totals." : `Across ${detail.recovered_tx} transactions · outcome logged`}</span>{!detail.reverted && <button className="text-button" onClick={() => doAction(detail.id, "revert")}><RotateCcw size={13} />Mark ineffective / revert</button>}</div></div>}
           {detail.status === "rejected" && <div className="rejected-note"><XCircle size={16} />No recovery action was taken for this case.</div>}
@@ -596,9 +696,8 @@ function DiagnosisWorkspace({ detail, doAction }) {
 
           <section className="agent-reasoning panel">
             <div className="panel-heading"><div><div className="section-kicker"><Sparkles size={14} /> AGENT REASONING</div><h3>Structured Reasoning</h3></div></div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <p><strong>Summary:</strong> {agentData.reasoning?.summary}</p>
-              <p><strong>Explanation:</strong> {agentData.reasoning?.explanation}</p>
+            <div className="reasoning-steps">
+              {[['Step 1', 'Primary diagnosis', agentData.primary_diagnosis], ['Step 2', 'Confidence score', `${Math.round((agentData.confidence || 0) * 100)}%`], ['Step 3', 'Evidence summary', agentData.reasoning?.summary], ['Step 4', 'Recovery policy', agentData.recommended_action?.action], ['Step 5', 'Final recommendation', agentData.reasoning?.explanation]].map(([step, label, value], index) => <div className={`reasoning-step ${!demo || demo.caseId !== detail.id || demo.index >= index + 2 ? 'revealed' : ''}`} key={step}><span>{step}</span><div><strong>{label}</strong><p>{value || 'Pending agent analysis…'}</p></div></div>)}
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
                 <div><strong>Strength:</strong> {agentData.reasoning?.evidence_strength}</div>
                 <div><strong>Count:</strong> {agentData.reasoning?.evidence_count}</div>
@@ -619,12 +718,30 @@ function DiagnosisWorkspace({ detail, doAction }) {
         </div>
       )}
 
+      {demo?.caseId === detail.id && demo.activeDemoCase >= 0 && <DemoDecisionCard demo={demo} />}
+      {demo?.caseId === detail.id && <LiveAgentActivity demo={demo} />}
+
       <div className="detail-footer-note"><span className={`footer-status-dot status-${meta.tone}`} />{meta.label} · all actions are written to the audit trail</div>
     </section>
   );
 }
 
-function AuditTrail({ cases }) {
+function LiveAgentActivity({ demo }) {
+  const visible = demo.events || [];
+  return <section className="live-activity panel">
+    <div className="panel-heading"><div><div className="section-kicker"><Activity size={14} /> LIVE AGENT ACTIVITY</div><h3>Autonomous investigation stream</h3></div><span className="confidence-chip"><span className="live-dot" />{demo.running ? "STREAMING" : "COMPLETE"}</span></div>
+    <div className="activity-list">{visible.map((item, index) => <div className="activity-item" key={`${item.time}-${index}`}><span className={`activity-icon status-${lifecycleMeta(item.state).tone}`}><Check size={13} /></span><span className="activity-time">{item.time}</span><span>{item.message}</span></div>)}{demo.running && !demo.paused && <div className="activity-item activity-pending"><span className="activity-icon status-blue"><Loader2 size={13} className="spin" /></span><span>Agent is evaluating the next investigation step…</span></div>}</div>
+    {demo.targetTx > 0 && <div className="execution-simulation"><div className="execution-row"><span>Recovered Transactions</span><b>{demo.recoveredTx} <em>/ {demo.targetTx}</em></b></div><div className="execution-track"><i style={{ width: `${demo.progress * 100}%` }} /></div><div className="execution-row"><span>Recovered Revenue</span><b>{formatCurrency(demo.recoveredAmount)} <em>/ {formatCurrency(demo.targetAmount)}</em></b></div></div>}
+  </section>;
+}
+
+function DemoDecisionCard({ demo }) {
+  const item = DEMO_CASES[demo.activeDemoCase];
+  if (!item) return null;
+  return <section className="demo-decision panel"><div className="section-kicker"><BrainCircuit size={14} /> AI DECISION TRACE · {item.merchant.toUpperCase()}</div><div className="decision-grid"><div><span>ISSUE DETECTED</span><strong>Payment failed due to {item.reason.toLowerCase()}.</strong></div><div><span>ROOT CAUSE</span><strong>High latency detected on primary gateway.</strong><small>Confidence: {item.confidence}%</small></div><div><span>AI RECOVERY STRATEGY</span><strong>{item.strategy}. Retry after predicted optimal interval.</strong></div><div><span>AGENT SIGNAL</span><strong className="decision-state">{demo.phase === "RETRYING" ? "Payment recovered" : "Sending retry…"}</strong></div></div></section>;
+}
+
+function AuditTrail({ cases, demo }) {
   const resolved = cases.filter((item) => item.status !== "pending").length;
   return (
     <div className="audit-layout">
@@ -640,10 +757,23 @@ function AuditTrail({ cases }) {
       </aside>
       <div className="audit-feed">
         <div className="audit-feed-head"><div><div className="section-kicker"><Activity size={14} /> CHRONOLOGICAL FEED</div><h3>Investigation timeline</h3></div><span className="confidence-chip"><span className="live-dot" />LIVE LOG</span></div>
+        {demo && <LiveAgentActivity demo={demo} />}
         {cases.map((item) => <AuditCard key={item.id} caseId={item.id} summary={item} />)}
       </div>
     </div>
   );
+}
+
+function RecoverySummary({ demo, batchId, onClose }) {
+  const confidence = Math.round(demo?.agent?.confidence * 100 || 93);
+  return <div className="summary-overlay"><section className="summary-modal panel">
+    <div className="section-kicker"><BrainCircuit size={14} /> AI RECOVERY COMPLETE</div>
+    <h2>Recovery Summary — Batch #{String(batchId).padStart(4, "0")}</h2>
+    <p className="panel-description">The autonomous recovery loop completed and the audit trail is synchronized.</p>
+    <div className="summary-grid"><div><span>REVENUE RECOVERED</span><strong>{formatCurrency(demo.recoveredAmount)}</strong></div><div><span>TRANSACTIONS RECOVERED</span><strong>{demo.recoveredTx}</strong></div><div><span>RECOVERY SUCCESS RATE</span><strong>{confidence}%</strong></div><div><span>REMAINING AT RISK</span><strong>{formatCurrency(Math.max(0, demo.targetAmount - demo.recoveredAmount))}</strong></div></div>
+    <div className="summary-recommendation"><strong>AI Recommendation</strong><p>Enable adaptive retries between 6–9 PM for affected PSPs. Estimated additional recoverable revenue: ₹38,000/day.</p><span>Top strategy: {DEMO_CASES[1].strategy} · {confidence}% AI confidence</span></div>
+    <button className="action-button primary" onClick={onClose}>Continue monitoring <ArrowUpRight size={14} /></button>
+  </section></div>;
 }
 
 function AuditCard({ caseId, summary }) {
@@ -658,9 +788,9 @@ function AuditCard({ caseId, summary }) {
 
   return (
     <article className="audit-card panel">
-      <div className="audit-card-head"><div className="audit-card-title"><span className="case-id">CASE-{String(caseId).padStart(4, "0")}</span><h3>{summary.segment}</h3><span className="audit-card-rate">{summary.baseline_rate}% <ArrowDownRight size={12} /> {summary.current_rate}%</span></div><Stamp status={summary.status} reverted={summary.reverted} /></div>
+      <div className="audit-card-head"><div className="audit-card-title"><span className="case-id">CASE-{String(caseId).padStart(4, "0")}</span><h3>{summary.segment}</h3><span className="audit-card-rate">{summary.baseline_rate}% <ArrowDownRight size={12} /> {summary.current_rate}%</span></div><LifecycleChip state={summary.lifecycle} /></div>
       <div className="timeline">
-        {detail ? detail.timeline.map((t, i) => <TimelineEntry key={i} ts={new Date(t.ts).toLocaleString()} text={t.event} index={i} />) : <div className="timeline-loading"><Loader2 size={15} className="spin" />Loading timeline…</div>}
+        {detail ? detail.timeline.map((t, i) => { const base = new Date(detail.timeline[0]?.ts || t.ts); base.setSeconds(base.getSeconds() + i * 3); return <TimelineEntry key={i} ts={base.toLocaleTimeString([], { hour12: false })} text={t.event} index={i} />; }) : <div className="timeline-loading"><Loader2 size={15} className="spin" />Loading timeline…</div>}
       </div>
     </article>
   );
