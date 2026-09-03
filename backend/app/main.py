@@ -6,7 +6,7 @@ from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-from . import models, generator, agent
+from . import models, generator, agent, llm_review
 from .database import engine, get_db, Base
 
 Base.metadata.create_all(bind=engine)
@@ -22,6 +22,7 @@ _NEW_CASE_COLS = [
     "ALTER TABLE cases ADD COLUMN recommendation_json TEXT",
     "ALTER TABLE cases ADD COLUMN abstain_reason TEXT",
     "ALTER TABLE cases ADD COLUMN lifecycle TEXT DEFAULT 'DETECTED'",
+    "ALTER TABLE cases ADD COLUMN llm_opinion_json TEXT",
 ]
 with engine.connect() as _conn:
     for _stmt in _NEW_CASE_COLS:
@@ -64,6 +65,7 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
         "evidence": json.loads(c.evidence_json) if c.evidence_json else [],
         "recommendation": json.loads(c.recommendation_json) if c.recommendation_json else None,
         "abstain_reason": c.abstain_reason,
+        "llm_opinion": json.loads(c.llm_opinion_json) if c.llm_opinion_json else None,
     }
     if include_timeline and db is not None:
         events = (
@@ -238,6 +240,46 @@ def mark_reviewed(case_id: int, db: Session = Depends(get_db)):
     case.status = "escalated-reviewed"
     case.lifecycle = "ESCALATED"
     db.add(models.TimelineEvent(case_id=case.id, event="Manual review completed by ops. Outcome logged outside the automated system."))
+    db.commit()
+    return _serialize_case(case)
+
+
+@app.post("/api/cases/{case_id}/llm-review")
+def llm_review_case(case_id: int, db: Session = Depends(get_db)):
+    """Get an independent LLM second opinion on an abstained case.
+
+    Only valid for cases the rule-based engine has already abstained on.
+    This never changes case status, never triggers approval, and never
+    feeds back into the scoring pipeline — it's a read-only opinion for a
+    human reviewer, stored alongside the case for the audit trail.
+    """
+    case = db.get(models.Case, case_id)
+    if not case:
+        raise HTTPException(404, "Case not found")
+    if case.status not in ("abstained", "escalated-reviewed"):
+        raise HTTPException(400, "LLM review is only available for abstained/escalated cases")
+
+    hypotheses = json.loads(case.hypotheses_json) if case.hypotheses_json else []
+    evidence = json.loads(case.evidence_json) if case.evidence_json else []
+
+    opinion = llm_review.get_second_opinion(case, evidence, hypotheses)
+    case.llm_opinion_json = json.dumps(opinion)
+
+    if opinion.get("available"):
+        db.add(models.TimelineEvent(
+            case_id=case.id,
+            event=(
+                f"AI second opinion requested — model {'agrees' if opinion.get('agrees_with_abstention') else 'disagrees'} "
+                f"with the abstention. Suggested cause: {opinion.get('likely_cause')} "
+                f"({opinion.get('confidence_percent')}% confidence). Advisory only — no automated action taken."
+            ),
+        ))
+    else:
+        db.add(models.TimelineEvent(
+            case_id=case.id,
+            event=f"AI second opinion requested but unavailable: {opinion.get('error')}",
+        ))
+
     db.commit()
     return _serialize_case(case)
 

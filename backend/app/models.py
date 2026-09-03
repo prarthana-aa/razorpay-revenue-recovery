@@ -52,6 +52,8 @@ class Case(Base):
     evidence_json = Column(String, nullable=True)
     recommendation_json = Column(String, nullable=True)
     abstain_reason = Column(String, nullable=True)
+    # --- independent LLM second opinion (abstained cases only) ---
+    llm_opinion_json = Column(String, nullable=True)
 
 
 class TimelineEvent(Base):

@@ -4,3 +4,5 @@ pydantic_core==2.46.4
 SQLAlchemy==2.0.52
 uvicorn==0.52.4
 python-multipart
+requests
+python-dotenv

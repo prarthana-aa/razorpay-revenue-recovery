@@ -749,7 +749,28 @@ function DiagnosisWorkspace({ detail, doAction, demo, approveDemo, rejectDemo })
           <strong>{detail.recommendation?.label || (topHypothesis ? ACTION_LABEL[topHypothesis.code] : "Manual review required")}</strong>
           {detail.status === "pending" && !demo?.paused && <div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={() => doAction(detail.id, "approve")}><CheckCircle2 size={15} />Approve Recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={() => doAction(detail.id, "reject")}><XCircle size={15} />Reject Recovery</button></div>}
           {demo?.caseId === detail.id && demo.paused && <div className="approval-card"><ShieldAlert size={16} /><div><strong>Operator Approval Required</strong><span>The policy gate paused the autonomous run before execution.</span><div className="operator-actions"><button className="action-button approve" style={btnStyle(C.green, true)} onClick={approveDemo}>Approve Recovery</button><button className="action-button reject" style={btnStyle(C.red)} onClick={rejectDemo}>Reject Recovery</button></div></div></div>}
-          {detail.status === "abstained" && <div className="abstain-block"><AlertTriangle size={16} /><div><strong>Confidence below the {Math.round(CONFIDENCE_FLOOR * 100)}% automation floor.</strong><span>{detail.abstain_reason || "No automated recovery was attempted. This case was escalated for manual review instead of guessing."}</span><button className="text-button" onClick={() => doAction(detail.id, "mark-reviewed")}>Mark reviewed by ops <ArrowUpRight size={13} /></button></div></div>}
+          {detail.status === "abstained" && <div className="abstain-block"><AlertTriangle size={16} /><div><strong>Confidence below the {Math.round(CONFIDENCE_FLOOR * 100)}% automation floor.</strong><span>{detail.abstain_reason || "No automated recovery was attempted. This case was escalated for manual review instead of guessing."}</span><div style={{ display: "flex", gap: "10px", marginTop: "6px" }}><button className="text-button" onClick={() => doAction(detail.id, "llm-review")}><BrainCircuit size={13} />{detail.llm_opinion ? "Refresh AI second opinion" : "Get AI second opinion"}</button><button className="text-button" onClick={() => doAction(detail.id, "mark-reviewed")}>Mark reviewed by ops <ArrowUpRight size={13} /></button></div></div></div>}
+          {detail.llm_opinion && (
+            <div className="abstain-block" style={{ borderColor: detail.llm_opinion.available ? "var(--blue, #7caeff)" : "var(--red, #ff718b)" }}>
+              <BrainCircuit size={16} />
+              <div>
+                <strong>AI second opinion — advisory only, not an automated decision</strong>
+                {detail.llm_opinion.available ? (
+                  <>
+                    <span>
+                      {detail.llm_opinion.agrees_with_abstention
+                        ? "Agrees the evidence is genuinely ambiguous."
+                        : `Suggests ${CODE_LABEL[detail.llm_opinion.likely_cause] || detail.llm_opinion.likely_cause} (${detail.llm_opinion.confidence_percent}% confidence) — still requires manual review.`}
+                    </span>
+                    <span style={{ display: "block", marginTop: "4px" }}>{detail.llm_opinion.reasoning}</span>
+                    <span style={{ display: "block", marginTop: "4px", opacity: 0.8 }}><b>Suggested next step:</b> {detail.llm_opinion.suggested_next_step}</span>
+                  </>
+                ) : (
+                  <span>Unavailable — {detail.llm_opinion.error}</span>
+                )}
+              </div>
+            </div>
+          )}
           {detail.status === "approved" && <div className={`outcome-block ${detail.reverted ? "reverted" : ""}`}><Check size={16} /><div><strong>{detail.reverted ? "Recovery reverted" : `${formatCurrency(detail.recovered_amount)} recovered`}</strong><span>{detail.reverted ? "The action was marked ineffective and removed from recovered totals." : `Across ${detail.recovered_tx} transactions · outcome logged`}</span>{!detail.reverted && <button className="text-button" onClick={() => doAction(detail.id, "revert")}><RotateCcw size={13} />Mark ineffective / revert</button>}</div></div>}
           {detail.status === "rejected" && <div className="rejected-note"><XCircle size={16} />No recovery action was taken for this case.</div>}
         </div>
