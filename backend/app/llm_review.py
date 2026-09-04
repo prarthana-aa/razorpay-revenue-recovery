@@ -14,8 +14,8 @@ Scope, deliberately narrow:
   in manual review exactly as it would have without this feature. We never
   block or crash the case pipeline because an LLM call failed.
 
-Uses Google Gemini's free tier (no credit card required):
-https://aistudio.google.com  ->  create an API key  ->  set GEMINI_API_KEY.
+Uses Groq's free tier (no credit card required):
+https://console.groq.com  ->  API Keys -> Create API Key  ->  set GROQ_API_KEY.
 """
 
 import json
@@ -29,52 +29,26 @@ try:
     # Looks for backend/.env regardless of where uvicorn is launched from.
     load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
 except ImportError:
-    pass  # python-dotenv not installed — GEMINI_API_KEY must be set another way
+    pass  # python-dotenv not installed — GROQ_API_KEY must be set another way
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-GEMINI_URL = (
-    f"https://generativelanguage.googleapis.com/v1beta/models/"
-    f"{GEMINI_MODEL}:generateContent"
-)
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+GROQ_MODEL = os.environ.get("GROQ_MODEL", "openai/gpt-oss-120b")
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 REQUEST_TIMEOUT_SECONDS = 12
 
-# Structured output schema — Gemini will be constrained to return exactly
-# this shape, so we never have to hope the model formats JSON correctly.
-_RESPONSE_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "agrees_with_abstention": {
-            "type": "BOOLEAN",
-            "description": "True if you also think no single cause can be confidently isolated.",
-        },
-        "likely_cause": {
-            "type": "STRING",
-            "description": "Your best-guess root cause code, or 'none' if you agree the evidence is genuinely ambiguous.",
-            "enum": ["issuer_decline", "otp_timeout", "expired_card", "network_error", "none"],
-        },
-        "confidence_percent": {
-            "type": "INTEGER",
-            "description": "Your confidence in likely_cause, 0-100. Use 0 if likely_cause is 'none'.",
-        },
-        "reasoning": {
-            "type": "STRING",
-            "description": "2-4 sentences explaining your read of the evidence, in plain operator-facing language.",
-        },
-        "suggested_next_step": {
-            "type": "STRING",
-            "description": "One concrete, human-actionable next step for an ops reviewer — not an automated action.",
-        },
-    },
-    "required": [
-        "agrees_with_abstention",
-        "likely_cause",
-        "confidence_percent",
-        "reasoning",
-        "suggested_next_step",
-    ],
-}
+_VALID_CAUSES = {"issuer_decline", "otp_timeout", "expired_card", "network_error", "none"}
+_REQUIRED_KEYS = (
+    "agrees_with_abstention",
+    "likely_cause",
+    "confidence_percent",
+    "reasoning",
+    "suggested_next_step",
+)
 
+# Groq's JSON mode (response_format={"type": "json_object"}) guarantees valid
+# JSON syntax but, unlike Gemini's responseSchema, doesn't enforce a specific
+# shape — so the exact keys/types/enum have to be spelled out in the prompt,
+# and we validate the parsed result ourselves before trusting it.
 _SYSTEM_PREAMBLE = (
     "You are an independent second-opinion reviewer for a payment failure "
     "diagnosis system used by a payments company. A deterministic, rule-based "
@@ -85,7 +59,20 @@ _SYSTEM_PREAMBLE = (
     "who will make the final call. Be honest if you also can't tell — "
     "agreeing that the evidence is ambiguous is a valid and useful answer, "
     "not a failure. Never suggest an automated or irreversible action; only "
-    "suggest what a human reviewer should look at or do next."
+    "suggest what a human reviewer should look at or do next.\n\n"
+    "Respond with ONLY a JSON object (no markdown fences, no commentary) "
+    "with exactly these keys:\n"
+    '  "agrees_with_abstention": boolean — true if you also think no single '
+    "cause can be confidently isolated.\n"
+    '  "likely_cause": string — one of "issuer_decline", "otp_timeout", '
+    '"expired_card", "network_error", or "none" if the evidence is genuinely '
+    "ambiguous.\n"
+    '  "confidence_percent": integer 0-100 — your confidence in likely_cause. '
+    'Use 0 if likely_cause is "none".\n'
+    '  "reasoning": string — 2-4 sentences explaining your read of the '
+    "evidence, in plain operator-facing language.\n"
+    '  "suggested_next_step": string — one concrete, human-actionable next '
+    "step for an ops reviewer — not an automated action."
 )
 
 
@@ -114,13 +101,13 @@ def _build_prompt(case: Any, evidence_list: List[Dict[str, Any]], hypotheses: Li
 
 
 def is_configured() -> bool:
-    return bool(GEMINI_API_KEY)
+    return bool(GROQ_API_KEY)
 
 
 def get_second_opinion(
     case: Any, evidence_list: List[Dict[str, Any]], hypotheses: List[Dict[str, Any]]
 ) -> Dict[str, Any]:
-    """Call Gemini for an independent opinion on an abstained case.
+    """Call Groq for an independent opinion on an abstained case.
 
     Always returns a dict — never raises. On any failure (missing key,
     network error, timeout, bad response) it returns a dict with
@@ -128,48 +115,67 @@ def get_second_opinion(
     can display "AI second opinion unavailable" instead of crashing the
     request.
     """
-    if not GEMINI_API_KEY:
+    if not GROQ_API_KEY:
         return {
             "available": False,
-            "error": "GEMINI_API_KEY is not set on the backend. "
-                     "Get a free key at https://aistudio.google.com and set it as an env var.",
+            "error": "GROQ_API_KEY is not set on the backend. "
+                     "Get a free key at https://console.groq.com and set it as an env var.",
         }
 
     prompt = _build_prompt(case, evidence_list, hypotheses)
 
     payload = {
-        "system_instruction": {"parts": [{"text": _SYSTEM_PREAMBLE}]},
-        "contents": [{"role": "user", "parts": [{"text": prompt}]}],
-        "generationConfig": {
-            "responseMimeType": "application/json",
-            "responseSchema": _RESPONSE_SCHEMA,
-            "temperature": 0.2,
-        },
+        "model": GROQ_MODEL,
+        "messages": [
+            {"role": "system", "content": _SYSTEM_PREAMBLE},
+            {"role": "user", "content": prompt},
+        ],
+        "response_format": {"type": "json_object"},
+        "temperature": 0.2,
     }
 
     try:
         resp = requests.post(
-            GEMINI_URL,
-            params={"key": GEMINI_API_KEY},
+            GROQ_URL,
+            headers={
+                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Content-Type": "application/json",
+            },
             json=payload,
             timeout=REQUEST_TIMEOUT_SECONDS,
         )
     except requests.RequestException as e:
-        return {"available": False, "error": f"Request to Gemini failed: {e}"}
+        return {"available": False, "error": f"Request to Groq failed: {e}"}
 
     if resp.status_code != 200:
         return {
             "available": False,
-            "error": f"Gemini API returned HTTP {resp.status_code}: {resp.text[:300]}",
+            "error": f"Groq API returned HTTP {resp.status_code}: {resp.text[:300]}",
         }
 
     try:
         data = resp.json()
-        text = data["candidates"][0]["content"]["parts"][0]["text"]
+        text = data["choices"][0]["message"]["content"]
         parsed = json.loads(text)
     except (KeyError, IndexError, ValueError) as e:
-        return {"available": False, "error": f"Could not parse Gemini response: {e}"}
+        return {"available": False, "error": f"Could not parse Groq response: {e}"}
 
+    missing = [k for k in _REQUIRED_KEYS if k not in parsed]
+    if missing:
+        return {"available": False, "error": f"Groq response missing keys: {missing}"}
+
+    if parsed["likely_cause"] not in _VALID_CAUSES:
+        return {
+            "available": False,
+            "error": f"Groq returned an unrecognized likely_cause: {parsed['likely_cause']!r}",
+        }
+
+    try:
+        parsed["confidence_percent"] = max(0, min(100, int(parsed["confidence_percent"])))
+    except (TypeError, ValueError):
+        return {"available": False, "error": "Groq returned a non-numeric confidence_percent"}
+
+    parsed["agrees_with_abstention"] = bool(parsed["agrees_with_abstention"])
     parsed["available"] = True
-    parsed["model"] = GEMINI_MODEL
+    parsed["model"] = GROQ_MODEL
     return parsed
