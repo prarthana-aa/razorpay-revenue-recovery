@@ -307,13 +307,26 @@ export default function App() {
 
   async function runDemo() {
     if (!selectedId || demo?.running) return;
-    const agent = await (await fetch(`${API_BASE}/api/agent/${selectedId}`)).json();
+    let demoCaseId = selectedId;
+    try {
+      const demoRes = await fetch(`${API_BASE}/api/demo`, { method: "POST" });
+      if (!demoRes.ok) throw new Error("demo batch failed");
+      const demoData = await demoRes.json();
+      demoCaseId = demoData.selected_case_id || selectedId;
+      setSelectedId(demoCaseId);
+      await fetchAll();
+      await fetchDetail(demoCaseId);
+    } catch {
+      setError("Could not load the deterministic recovery demo.");
+      return;
+    }
+    const agent = await (await fetch(`${API_BASE}/api/agent/${demoCaseId}`)).json();
     const target = DEMO_CASES.reduce((sum, item) => sum + item.amount, 0);
     const targetTx = 39;
     const say = (message, phase) => { setDemoBanner(phase); setDemoToast(message); setTimeout(() => setDemoToast(null), 2300); setDemo((d) => ({ ...d, events: [...(d?.events || []), { message, state: "INVESTIGATING", time: new Date().toLocaleTimeString([], { hour12: false }) }] })); };
     setTab("overview");
     setDemoSummary(false);
-    setDemo({ caseId: selectedId, running: true, paused: false, index: 0, events: [], progress: 0, recoveredTx: 0, recoveredAmount: 0, targetTx, targetAmount: target, agent, activeDemoCase: -1, phase: "SCANNING" });
+    setDemo({ caseId: demoCaseId, running: true, paused: false, index: 0, events: [], progress: 0, recoveredTx: 0, recoveredAmount: 0, targetTx, targetAmount: target, agent, activeDemoCase: -1, phase: "SCANNING" });
     say(`AI Recovery Agent started — Batch #${String(cases[0]?.id || 1).padStart(4, "0")}`, "Scanning payment health…");
     await new Promise((r) => setTimeout(r, 1500));
     setTab("cases"); say("Detecting degradation clusters…", "Detecting degradation clusters…");
@@ -376,7 +389,6 @@ export default function App() {
     const matchesFilter = caseFilter === "all" || (caseFilter === "live" && item.lifecycle !== "RECOVERED" && item.lifecycle !== "ESCALATED") || (caseFilter === "critical" && ["high", "critical"].includes((item.severity || "").toLowerCase())) || item.status === caseFilter;
     return matchesSearch && matchesFilter;
   });
-  const pendingCount = cases.filter((item) => item.status === "pending").length;
   const topCase = cases[0];
   const healthScore = topCase ? Math.max(0, Math.round(topCase.current_rate)) : 0;
 
@@ -389,7 +401,7 @@ export default function App() {
         </div>
         <nav className="side-nav" aria-label="Primary navigation">
           <button className={`side-nav-item ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}><LayoutDashboard size={17} /><span>Mission control</span><kbd>01</kbd></button>
-          <button className={`side-nav-item ${tab === "cases" ? "active" : ""}`} onClick={() => setTab("cases")}><ListFilter size={17} /><span>Case queue</span>{pendingCount > 0 && <b>{pendingCount}</b>}</button>
+          <button className={`side-nav-item ${tab === "cases" ? "active" : ""}`} onClick={() => setTab("cases")}><ListFilter size={17} /><span>Case queue</span><kbd>02</kbd></button>
           <button className={`side-nav-item ${tab === "audit" ? "active" : ""}`} onClick={() => setTab("audit")}><FileClock size={17} /><span>Audit trail</span><kbd>03</kbd></button>
         </nav>
         <div className="sidebar-bottom">
@@ -550,7 +562,7 @@ function Overview({ chart, metrics, cases, healthScore, setTab, setSelectedId, d
   const values = Object.values(lastRow).filter((value) => typeof value === "number");
   const channels = ["UPI", "Cards", "Wallet", "Net Banking"];
   return <div className="mission-control-page">
-    <section className="mission-hero panel"><div><div className="section-kicker"><BrainCircuit size={14} /> MISSION CONTROL <span className="eyebrow-separator">·</span> LIVE RECOVERY BATCH #{String(cases[0]?.id || 1).padStart(4, "0")}</div><h2>Payment health, quietly recovering.</h2><p>Monitoring payment infrastructure across gateways, issuers, and merchant segments in real time.</p></div><div className="hero-badges"><span className="confidence-chip">LIVE BATCH</span><span className="confidence-chip sage-chip"><span className="live-dot" />DETECTION ENGINE LIVE</span><small>Last synced just now</small></div></section>
+    <section className="mission-hero panel"><div><div className="section-kicker"><BrainCircuit size={14} /> MISSION CONTROL <span className="eyebrow-separator">·</span> LIVE RECOVERY BATCH #{String(cases[0]?.id || 1).padStart(4, "0")}</div><p>Monitoring payment infrastructure across gateways, issuers, and merchant segments in real time.</p></div><div className="hero-badges"><span className="confidence-chip">LIVE BATCH</span><span className="confidence-chip sage-chip"><span className="live-dot" />DETECTION ENGINE LIVE</span><small>Last synced just now</small></div></section>
     <section className="mission-kpis"><MetricCard icon={Activity} label="ACTIVE INVESTIGATIONS" value={active} sub="segments needing attention" color={C.blue} /><MetricCard icon={AlertTriangle} label="REVENUE CURRENTLY AT RISK" value={formatCurrency(risk)} sub="across flagged segments" color={C.amber} /><MetricCard icon={IndianRupee} label="REVENUE RECOVERED TODAY" value={formatCurrency(recovered)} sub={demo?.running ? "recovery in motion" : "confirmed outcomes"} color={C.green} /><MetricCard icon={demo?.running ? Loader2 : Activity} label="ENGINE STATUS" value={demo?.running ? "Recovering" : "Monitoring"} sub="autonomous investigation loop active" color={C.green} /></section>
     <section className="health-chart-card panel"><div className="panel-heading"><div><div className="section-kicker"><Activity size={14} /> LIVE PAYMENT HEALTH</div><h3>Live payment health</h3><p className="panel-description">Payment success across issuer × method combinations over the last 21 days.</p></div><span className="time-chip"><Clock3 size={13} />21 DAY WINDOW</span></div>{chart ? <div className="full-chart"><ResponsiveContainer><LineChart data={chart.rows} margin={{ top: 18, right: 16, left: -18, bottom: 0 }}><CartesianGrid stroke={C.borderSoft} vertical={false} /><XAxis dataKey="day" tick={{ fill: C.textFaint, fontSize: 10, fontFamily: fontMono }} axisLine={false} tickLine={false} /><YAxis domain={[30, 100]} tick={{ fill: C.textFaint, fontSize: 10, fontFamily: fontMono }} axisLine={false} tickLine={false} /><ReferenceLine x={`D${chart.anomaly_start}`} stroke={C.amber} strokeDasharray="3 5" /><Tooltip contentStyle={{ background: "#111111", border: `1px solid ${C.border}`, borderRadius: 10, fontSize: 12, fontFamily: fontMono }} /><Legend wrapperStyle={{ display: "none" }} />{chart.segments.map((s, i) => <Line key={s.key} type="monotone" dataKey={s.key} name={s.label} stroke={SEGMENT_LINE_COLORS[i % SEGMENT_LINE_COLORS.length]} strokeWidth={1.7} dot={false} connectNulls animationDuration={1400} />)}</LineChart></ResponsiveContainer></div> : <div className="chart-placeholder">No chart data available for this batch.</div>}<div className="health-chips">{channels.map((label, index) => <div className="health-chip" key={label}><span className={`chip-dot chip-dot-${index}`} /><span>{label} Success</span><strong>{Math.round(values[index] || healthScore)}%</strong></div>)}</div></section>
     <section className="queue-snapshot panel"><div className="panel-heading"><div><div className="section-kicker"><ListFilter size={14} /> RECOVERY QUEUE SNAPSHOT</div><h3>What needs attention next</h3></div><button className="inline-link" onClick={() => setTab("cases")}>View all cases <ArrowUpRight size={14} /></button></div><div className="queue-table-head"><span>MERCHANT / SEGMENT</span><span>SEVERITY</span><span>REVENUE AT RISK</span><span>CURRENT STATUS</span><span>RECOVERY AMOUNT</span></div>{cases.slice(0, 5).map((item, index) => <button className="queue-table-row" style={{ "--entry-delay": `${index * 70}ms` }} key={item.id} onClick={() => { setSelectedId(item.id); setTab("cases"); }}><strong>{item.segment}</strong><span className={`severity-label severity-text-${item.severity || "medium"}`}>{(item.severity || "medium").toUpperCase()}</span><span>{formatCurrency(item.window_failed * item.avg_amount)}</span><LifecycleChip state={item.lifecycle} /><span>{formatCurrency(item.recovered_amount || 0)}</span></button>)}</section>

@@ -331,6 +331,11 @@ def generate_batch(db, seed=None):
     segments = rng.sample(SEGMENT_POOL, 6)
     n_flagged = rng.choice([2, 3])
     flagged_indices = set(rng.sample(range(len(segments)), n_flagged))
+    # Keep one case reliably ambiguous so the operator escalation path is
+    # always represented in a generated batch.  This is deliberately applied
+    # to transactions, rather than only to the probability weights: sampling
+    # can otherwise turn an ambiguous mix into a dominant diagnosis.
+    guaranteed_ambiguous_index = min(flagged_indices)
 
     all_transactions = []
 
@@ -344,22 +349,32 @@ def generate_batch(db, seed=None):
         }
         avg_amount = AVG_AMOUNT.get(method, 500)
 
+        forced_failure_number = 0
         for day in range(1, DAYS + 1):
             in_anomaly_window = is_flagged and day >= ANOMALY_START
             target_rate = anomaly_rate if in_anomaly_window else baseline_rate
             attempts = rng.randint(28, 42)
 
-            for _ in range(attempts):
-                success = rng.uniform(0, 100) < target_rate
+            for attempt_number in range(attempts):
+                forced_ambiguous = idx == guaranteed_ambiguous_index and in_anomaly_window
+                success = (
+                    attempt_number % 2 == 0
+                    if forced_ambiguous
+                    else rng.uniform(0, 100) < target_rate
+                )
                 amount = round(rng.uniform(0.7, 1.3) * avg_amount, 2)
                 failure_code = None
                 if not success:
-                    weights_to_use = cause_weights if in_anomaly_window else {
-                        c: 0.25 for c in FAILURE_CODES
-                    }
-                    codes = list(weights_to_use.keys())
-                    probs = list(weights_to_use.values())
-                    failure_code = rng.choices(codes, weights=probs, k=1)[0]
+                    if forced_ambiguous:
+                        failure_code = FAILURE_CODES[forced_failure_number % 2]
+                        forced_failure_number += 1
+                    else:
+                        weights_to_use = cause_weights if in_anomaly_window else {
+                            c: 0.25 for c in FAILURE_CODES
+                        }
+                        codes = list(weights_to_use.keys())
+                        probs = list(weights_to_use.values())
+                        failure_code = rng.choices(codes, weights=probs, k=1)[0]
 
                 all_transactions.append(models.Transaction(
                     batch_id=batch.id, day=day, segment_key=key,
@@ -575,6 +590,8 @@ def analyze_batch(db, batch_id: int, anomaly_start: int):
         top_confidence    = hypotheses[0]["confidence"] if hypotheses else 0.0
         second_confidence = hypotheses[1]["confidence"] if len(hypotheses) >= 2 else 0.0
         max_raw_share     = max(counts[h["code"]] / total_failed for h in hypotheses) if hypotheses else 0.0
+        top_raw_share     = hypotheses[0]["share"] / total_failed if hypotheses else 0.0
+        second_raw_share  = hypotheses[1]["share"] / total_failed if len(hypotheses) >= 2 else 0.0
 
         # --- Improved abstention logic (three conditions) ---
         abstain_reason = None
@@ -584,6 +601,17 @@ def analyze_batch(db, batch_id: int, anomaly_start: int):
                 f"Top confidence score ({round(top_confidence * 100)}%) is below the "
                 f"{int(CONFIDENCE_FLOOR * 100)}% threshold — evidence is insufficient "
                 f"to single out a dominant cause."
+            )
+        elif (
+            len(hypotheses) >= 2
+            and abs(top_raw_share - second_raw_share) < 0.10
+            and top_raw_share < 0.55
+        ):
+            abstained = True
+            abstain_reason = (
+                f"Top two diagnoses are within 10 percentage points of each other "
+                f"({round(top_raw_share * 100)}% vs {round(second_raw_share * 100)}%) "
+                f"— ambiguous signal, routing to manual review."
             )
         elif len(hypotheses) >= 2 and (top_confidence - second_confidence) < 0.10:
             abstained = True

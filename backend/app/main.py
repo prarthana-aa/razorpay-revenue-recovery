@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 from . import models, generator, agent, llm_review
-from .database import engine, get_db, Base
+from .database import engine, get_db, Base, SessionLocal
 
 Base.metadata.create_all(bind=engine)
 
@@ -32,6 +32,30 @@ with engine.connect() as _conn:
             pass  # column already exists — safe to ignore
 
 
+DEMO_SEED = 20260904
+
+
+def _seed_demo_batch():
+    """Create the judge-friendly initial batch with one approved outcome."""
+    db = SessionLocal()
+    try:
+        if db.query(models.Batch).first():
+            return
+        batch = generator.generate_batch(db, seed=DEMO_SEED)
+        cases = generator.analyze_batch(db, batch.id, batch.anomaly_start)
+        approved = next((c for c in cases if c.status == "pending"), None)
+        if approved:
+            action = generator.ACTIONS[json.loads(approved.hypotheses_json)[0]["code"]]
+            approved.status = "approved"
+            approved.lifecycle = "RECOVERED"
+            approved.recovered_amount = round(approved.window_failed * approved.avg_amount * action["effectiveness"], 2)
+            approved.recovered_tx = round(approved.window_failed * action["effectiveness"])
+            approved.chosen_action = action["label"]
+            db.commit()
+    finally:
+        db.close()
+
+
 app = FastAPI(title="Payment Recovery Console API")
 
 app.add_middleware(
@@ -40,6 +64,8 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+_seed_demo_batch()
 
 
 def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
@@ -84,6 +110,23 @@ def generate(seed: Optional[int] = None, db: Session = Depends(get_db)):
     batch = generator.generate_batch(db, seed=seed)
     cases = generator.analyze_batch(db, batch.id, batch.anomaly_start)
     return {"batch_id": batch.id, "cases_created": len(cases), "source": "generated"}
+
+
+@app.post("/api/demo")
+def demo_batch(db: Session = Depends(get_db)):
+    """Reset to a deterministic demo batch and pre-approve one safe case."""
+    batch = generator.generate_batch(db, seed=DEMO_SEED)
+    cases = generator.analyze_batch(db, batch.id, batch.anomaly_start)
+    approved = next((c for c in cases if c.status == "pending"), None)
+    if approved:
+        action = generator.ACTIONS[json.loads(approved.hypotheses_json)[0]["code"]]
+        approved.status = "approved"
+        approved.lifecycle = "RECOVERED"
+        approved.recovered_amount = round(approved.window_failed * approved.avg_amount * action["effectiveness"], 2)
+        approved.recovered_tx = round(approved.window_failed * action["effectiveness"])
+        approved.chosen_action = action["label"]
+        db.commit()
+    return {"batch_id": batch.id, "selected_case_id": approved.id if approved else (cases[0].id if cases else None), "cases_created": len(cases), "source": "demo"}
 
 
 @app.post("/api/upload")
