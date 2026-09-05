@@ -397,7 +397,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand-lockup">
           <div className="brand-mark"><ShieldAlert size={18} /></div>
-          <div><strong>Razorpay</strong><span>RECOVERY OS</span></div>
+          <div><strong>Recon</strong><span>RECOVERY OS</span></div>
         </div>
         <nav className="side-nav" aria-label="Primary navigation">
           <button className={`side-nav-item ${tab === "overview" ? "active" : ""}`} onClick={() => setTab("overview")}><LayoutDashboard size={17} /><span>Mission control</span><kbd>01</kbd></button>

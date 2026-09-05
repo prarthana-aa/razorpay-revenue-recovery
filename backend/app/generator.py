@@ -593,7 +593,7 @@ def analyze_batch(db, batch_id: int, anomaly_start: int):
         top_raw_share     = hypotheses[0]["share"] / total_failed if hypotheses else 0.0
         second_raw_share  = hypotheses[1]["share"] / total_failed if len(hypotheses) >= 2 else 0.0
 
-        # --- Improved abstention logic (three conditions) ---
+        # --- Improved abstention logic (four conditions) ---
         abstain_reason = None
         if top_confidence < CONFIDENCE_FLOOR:
             abstained = True

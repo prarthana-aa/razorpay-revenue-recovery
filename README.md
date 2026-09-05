@@ -1,4 +1,4 @@
-# Payment Recovery Console
+# Recon — Recovery OS
 
 **Track 03 — AI Revenue Recovery** · Razorpay Buildathon
 
