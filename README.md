@@ -92,10 +92,14 @@ razorpay-revenue-recovery/
 │   ├── .gitignore
 │   └── app/
 │       ├── __init__.py
-│       ├── database.py      # SQLAlchemy engine/session setup
-│       ├── models.py        # Batch, Transaction, Case, TimelineEvent
-│       ├── generator.py     # synthetic data + CSV parsing + detection/diagnosis
-│       └── main.py          # FastAPI routes
+│       ├── database.py        # SQLAlchemy engine/session setup
+│       ├── models.py          # Batch, Transaction, Case, TimelineEvent
+│       ├── generator.py       # synthetic data + CSV parsing + detection/diagnosis
+│       ├── reasoning.py       # structured, non-LLM reasoning summary for the agent view
+│       ├── recovery_policy.py # bounded-action policy lookup per diagnosis code
+│       ├── agent.py           # read-only orchestrator: policy + reasoning + revenue projection
+│       ├── llm_review.py      # optional Groq second opinion for abstained cases
+│       └── main.py            # FastAPI routes
 ├── src/
 │   ├── App.jsx               # main console UI
 │   ├── App.css
@@ -155,14 +159,18 @@ Open the printed `localhost` URL (typically `http://localhost:5173`). The app ca
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `POST` | `/api/generate` | Wipe existing data, generate a fresh randomized batch, run detection + diagnosis |
+| `POST` | `/api/demo` | Reset to a fixed, seeded batch and pre-approve one case — guarantees a non-zero recovered amount and at least one abstained case are visible on load, for demos |
 | `POST` | `/api/upload` | Parse an uploaded CSV as a fresh batch, run the same pipeline |
 | `GET`  | `/api/segments` | Daily success-rate series per segment, for the chart |
 | `GET`  | `/api/cases` | List all cases for the current batch |
 | `GET`  | `/api/cases/{id}` | Full case detail, including the audit timeline |
+| `GET`  | `/api/agent/{id}` | Read-only agent evaluation for a case: policy lookup, structured reasoning, and revenue projection. Never changes case state |
+| `POST` | `/api/cases/{id}/lifecycle` | Update a case's display lifecycle stage (DETECTED / INVESTIGATING / READY / AWAITING_APPROVAL / EXECUTING / RECOVERED / ESCALATED) |
 | `POST` | `/api/cases/{id}/approve` | Approve the recommended action; computes and stores the recovered amount |
 | `POST` | `/api/cases/{id}/reject` | Reject the recommended action; no recovery is attempted |
 | `POST` | `/api/cases/{id}/revert` | Mark a previously approved recovery as ineffective; removes it from the recovered total |
 | `POST` | `/api/cases/{id}/mark-reviewed` | Close out an abstained case after manual review |
+| `POST` | `/api/cases/{id}/llm-review` | Trigger the Groq AI second opinion for an abstained case (see [AI second opinion](#ai-second-opinion-optional)) |
 | `GET`  | `/api/dashboard` | Aggregate totals: recovered amount, resolution rate, escalation rate |
 
 ## CSV format
