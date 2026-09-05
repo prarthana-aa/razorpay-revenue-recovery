@@ -91,6 +91,7 @@ def _serialize_case(c, include_timeline=False, db: Optional[Session] = None):
         "evidence": json.loads(c.evidence_json) if c.evidence_json else [],
         "recommendation": json.loads(c.recommendation_json) if c.recommendation_json else None,
         "abstain_reason": c.abstain_reason,
+        "top_confidence": c.top_confidence,
         "llm_opinion": json.loads(c.llm_opinion_json) if c.llm_opinion_json else None,
     }
     if include_timeline and db is not None:
