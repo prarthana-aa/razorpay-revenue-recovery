@@ -211,8 +211,10 @@ export default function App() {
       if (casesData.length && !casesData.find((c) => c.id === selectedId)) {
         setSelectedId(casesData[0].id);
       }
+      return casesData;
     } catch {
       setError("Can't reach the backend at " + API_BASE + ". Is `uvicorn app.main:app --reload --port 8000` running?");
+      return null;
     }
   }, [selectedId]);
 
@@ -230,7 +232,16 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE}/api/generate`, { method: "POST" });
       if (!res.ok) throw new Error("generate failed");
-      await fetchAll();
+      const casesData = await fetchAll();
+      // New batches can reuse the same case ids as the previous batch, so
+      // `selectedId` may not change even though the underlying case data has.
+      // Force-refresh the detail panel for the new top case instead of
+      // relying on the selectedId-change effect to pick it up.
+      if (casesData && casesData.length) {
+        const firstId = casesData[0].id;
+        setSelectedId(firstId);
+        await fetchDetail(firstId);
+      }
     } catch {
       setError("Can't reach the backend at " + API_BASE + ". Is it running?");
     }
@@ -247,7 +258,12 @@ export default function App() {
       const res = await fetch(`${API_BASE}/api/upload`, { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.detail || "Upload failed.");
-      await fetchAll();
+      const casesData = await fetchAll();
+      if (casesData && casesData.length) {
+        const firstId = casesData[0].id;
+        setSelectedId(firstId);
+        await fetchDetail(firstId);
+      }
       if (data.unrecognized_failure_codes && data.unrecognized_failure_codes.length) {
         setError(
           `Loaded ${data.rows_loaded} rows. Some failure_code values weren't recognized ` +
