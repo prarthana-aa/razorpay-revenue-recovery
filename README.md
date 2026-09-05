@@ -44,8 +44,6 @@ You can run this on two kinds of data:
 
 ## How diagnosis actually works
 
-This is the part worth understanding before a demo, since it's the core of the pitch.
-
 **Step 1 — Multi-signal scoring.** Each candidate failure cause is scored on five signals, not just raw frequency:
 
 | Signal | Weight | What it captures |
