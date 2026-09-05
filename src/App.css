@@ -344,6 +344,52 @@ button { border: 0; }
 .outcome-grid strong { color: var(--text); font-size: 13px; font-weight: 800; }
 .safe-note { display: inline-flex; align-items: center; gap: 7px; padding: 8px 10px; color: var(--mint); background: rgba(98,230,180,.08); border: 1px solid rgba(98,230,180,.24); border-radius: 999px; font: 9px var(--mono); letter-spacing: .03em; }
 .safe-note svg { color: var(--mint); }
+
+/* Internal-tool visual system: sans type, compact spacing, semantic color. */
+h1, h2, h3, h4, .case-file-title h3, .evidence-summary-card h3, .structured-reasoning-card h3, .recommendation-copy h3, .replay-section-heading h3, .session-list h3, .audit-evidence-board h3, .decision-summary h3, .recovery-receipt h3 { font-family: var(--sans) !important; font-weight: 700 !important; letter-spacing: -.025em !important; }
+.case-hero h2 { font-size: 0; margin: 8px 0; }
+.case-hero h2::after { content: "Open investigations"; font-size: 32px; }
+.case-hero p { font-size: 0; }
+.case-hero p::after { content: "Review evidence and approve or escalate recovery actions before execution."; font: 12px/1.7 var(--sans); color: var(--text-muted); }
+.replay-hero h2 { display: none; }
+.replay-hero p { font-size: 0; }
+.replay-hero p::after { content: "Detection, reasoning, operator actions, and outcomes for the selected batch."; font: 12px/1.7 var(--sans); color: var(--text-muted); }
+.mission-control-page, .case-queue-page, .replay-page { gap: 14px; }
+.investigation-layout, .forensic-grid, .replay-layout { gap: 14px; }
+.health-chart-card, .queue-snapshot, .reasoning-summary, .replay-timeline-card, .audit-evidence-board, .decision-summary, .recovery-receipt { padding: 18px 20px; }
+.environment-chip { color: var(--text-muted) !important; }
+.status-muted { background: rgba(139,154,171,.08) !important; }
+.mission-hero, .case-hero, .replay-hero { min-height: 120px; padding: 18px 24px; background: #111820; }
+.mission-hero h2, .case-hero h2 { font-size: 0; }
+.mission-hero p { margin-top: 4px; }
+.mission-kpis { gap: 12px; }
+.mission-kpis .metric-card { min-height: 105px; padding: 14px; }
+.mission-kpis .metric-card:nth-child(2) .metric-icon { color: var(--amber) !important; }
+.mission-kpis .metric-card:nth-child(3) .metric-icon { color: var(--mint) !important; }
+.mission-kpis .metric-card:nth-child(4) .metric-icon { color: var(--text-faint) !important; }
+.mission-kpis .metric-label { color: var(--text-muted); }
+.mission-kpis .metric-value { font-size: 29px; }
+.investigation-card-bottom b { color: var(--amber); }
+.investigation-card.selected { background: #172230; border-color: var(--blue); }
+.diagnosis-card.primary { background: rgba(124,174,255,.06); }
+.recommendation-card { gap: 16px; padding: 18px; background: #111820; }
+.recommendation-copy h3 { font-size: 18px; }
+.recommendation-outcome { padding: 12px; }
+.incident-snapshot { padding: 16px 18px; }
+.incident-snapshot-grid > span { padding: 10px; }
+.incident-snapshot-grid strong { font-size: 28px; }
+.replay-page { gap: 14px; }
+.replay-hero { padding: 18px 24px; }
+.main-content { padding-left: 30px; padding-right: 30px; }
+.topbar { height: 68px; }
+.confidence-chip, .time-chip, .evidence-count { color: var(--text-muted); border-color: var(--border); }
+.sage-chip { color: var(--text-muted); }
+.demo-button { color: var(--text); background: #26313e; border-color: #465569; box-shadow: none; }
+.session-item.selected { background: #172230; border-color: var(--border); }
+.health-chip strong, .forensic-card strong, .receipt-grid strong { color: var(--text); }
+.recovery-receipt .receipt-amount, .outcome-block strong { color: var(--mint); }
+.semantic-critical, .severity-text-high, .severity-text-critical { color: var(--red) !important; }
+.semantic-warning, .severity-text-medium { color: var(--amber) !important; }
 .replay-hero h2 { display: none; }
 .side-nav-item kbd { display: grid; place-items: center; min-width: 24px; height: 20px; padding: 0 5px; color: var(--text-faint); background: #181818; border: 1px solid var(--border); border-radius: 999px; font: 9px var(--mono); }
 .side-nav-item.active kbd { color: #050505; background: rgba(255,255,255,.45); border-color: transparent; }
@@ -464,3 +510,17 @@ body { background: #050505; color: var(--text); }
 .section-kicker svg, .eyebrow svg { color: var(--text-faint); }
 .topbar { border-bottom-color: var(--border); }
 .environment-chip { color: var(--mint); background: #111111; border-color: var(--border); }
+
+/* Final internal-screen overrides. */
+.case-hero h2 { font-family: var(--sans) !important; font-size: 32px !important; font-weight: 700 !important; }
+.case-hero h2 { visibility: hidden; position: relative; }
+.case-hero h2::after { content: "Open investigations"; visibility: visible; position: absolute; left: 0; top: 0; }
+.case-hero p { font-size: 0 !important; }
+.case-hero p::after { content: "Review evidence and approve or escalate recovery actions before execution."; font: 12px/1.7 var(--sans); color: var(--text-muted); }
+.replay-hero h2 { display: none !important; }
+.replay-hero p { font-size: 0 !important; }
+.replay-hero p::after { content: "Detection, reasoning, operator actions, and outcomes for the selected batch."; font: 12px/1.7 var(--sans); color: var(--text-muted); }
+.investigation-card.selected, .session-item.selected { background: #172230 !important; border-color: var(--border) !important; }
+.mission-hero, .case-hero, .replay-hero, .recommendation-card { background: #111820 !important; }
+.mission-control-page, .case-queue-page, .replay-page, .incident-workspace, .replay-main { gap: 14px; }
+.health-chart-card, .queue-snapshot, .reasoning-summary, .replay-timeline-card, .audit-evidence-board, .decision-summary, .recovery-receipt { padding: 18px 20px; }

@@ -436,8 +436,8 @@ export default function App() {
             {tab !== "cases" && <section className="page-heading">
               <div>
                 <div className="eyebrow"><span className="eyebrow-pulse" />AI REVENUE RECOVERY <span className="eyebrow-separator">/</span> TRACK 03</div>
-                <h1>{tab === "overview" ? "Payment health, at a glance." : tab === "cases" ? "Investigate with confidence." : "Every decision, replayable."}</h1>
-                <p>{tab === "overview" ? "A live operating picture for detecting, diagnosing, and recovering payment-success degradation." : tab === "cases" ? "Review the evidence behind every anomaly before approving a bounded recovery action." : "A complete reasoning trail from detection to outcome, preserved for review."}</p>
+                <h1>{tab === "overview" ? "Payment health overview" : tab === "cases" ? "Case queue" : "Decision audit trail"}</h1>
+                <p>{tab === "overview" ? "Current payment performance, open risks, and confirmed recoveries." : tab === "cases" ? "Review evidence and approve or escalate recovery actions." : "Detection, reasoning, operator actions, and outcomes for the selected batch."}</p>
               </div>
               <div className="heading-actions">
                 <button className="action-button ghost" onClick={downloadSampleCsv}><FileClock size={15} />Sample CSV</button>
@@ -715,7 +715,7 @@ function DiagnosisWorkspace({ detail, doAction, demo, approveDemo, rejectDemo })
             {detail.hypotheses.map((hypothesis, index) => (
               <div className={`hypothesis ${hypothesis.ruled_out ? "ruled-out" : index === 0 ? "leading" : ""}`} key={hypothesis.code}>
                 <div className="hypothesis-top"><div className="hypothesis-name"><span className="hypothesis-index">0{index + 1}</span><strong>{CODE_LABEL[hypothesis.code]}</strong>{index === 0 && !hypothesis.ruled_out && <span className="leading-chip">LEADING SIGNAL</span>}</div><strong className="hypothesis-percent">{Math.round(hypothesis.confidence * 100)}%</strong></div>
-                <ConfidenceBar value={hypothesis.confidence} ruledOut={hypothesis.ruled_out} color={index === 0 ? C.green : C.blue} />
+                <ConfidenceBar value={hypothesis.confidence} ruledOut={hypothesis.ruled_out} color={index === 0 ? C.blue : C.textMuted} />
                 <div className="hypothesis-reason">{hypothesis.reasoning}</div>
                 {hypothesis.ruled_out && <span className="ruled-label">RULED OUT BY EVIDENCE</span>}
               </div>
